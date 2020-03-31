@@ -37,6 +37,9 @@
 
 #include "addrdec.h"
 
+// modified
+#include <iostream>
+
 enum cache_block_state {
     INVALID,
     RESERVED,
@@ -48,7 +51,7 @@ enum cache_request_status {
     HIT = 0,
     HIT_RESERVED,
     MISS,
-    RESERVATION_FAIL, 
+    RESERVATION_FAIL,
     NUM_CACHE_REQUEST_STATUS
 };
 
@@ -58,7 +61,7 @@ enum cache_event {
     WRITE_REQUEST_SENT
 };
 
-const char * cache_request_status_str(enum cache_request_status status); 
+const char * cache_request_status_str(enum cache_request_status status);
 
 struct cache_block_t {
     cache_block_t()
@@ -120,7 +123,7 @@ enum write_allocate_policy_t {
 
 enum mshr_config_t {
     TEX_FIFO,
-    ASSOC // normal cache 
+    ASSOC // normal cache
 };
 
 enum set_index_function{
@@ -131,9 +134,9 @@ enum set_index_function{
 
 class cache_config {
 public:
-    cache_config() 
-    { 
-        m_valid = false; 
+    cache_config()
+    {
+        m_valid = false;
         m_disabled = false;
         m_config_string = NULL; // set by option parser
         m_config_stringPrefL1 = NULL;
@@ -194,9 +197,9 @@ public:
         default: exit_parse_error();
         }
 
-        // detect invalid configuration 
+        // detect invalid configuration
         if (m_alloc_policy == ON_FILL and m_write_policy == WRITE_BACK) {
-            // A writeback cache with allocate-on-fill policy will inevitably lead to deadlock:  
+            // A writeback cache with allocate-on-fill policy will inevitably lead to deadlock:
             // The deadlock happens when an incoming cache-fill evicts a dirty
             // line, generating a writeback request.  If the memory subsystem
             // is congested, the interconnection network may not have
@@ -204,15 +207,15 @@ public:
             // incoming cache-fill.  The stall may propagate through the memory
             // subsystem back to the output port of the same core, creating a
             // deadlock where the wrtieback request and the incoming cache-fill
-            // are stalling each other.  
-            assert(0 && "Invalid cache configuration: Writeback cache cannot allocate new line on fill. "); 
+            // are stalling each other.
+            assert(0 && "Invalid cache configuration: Writeback cache cannot allocate new line on fill. ");
         }
 
-        // default: port to data array width and granularity = line size 
+        // default: port to data array width and granularity = line size
         if (m_data_port_width == 0) {
-            m_data_port_width = m_line_sz; 
+            m_data_port_width = m_line_sz;
         }
-        assert(m_line_sz % m_data_port_width == 0); 
+        assert(m_line_sz % m_data_port_width == 0);
 
         switch(sif){
         case 'H': m_set_index_function = FERMI_HASH_SET_FUNCTION; break;
@@ -235,7 +238,7 @@ public:
 
     void print( FILE *fp ) const
     {
-        fprintf( fp, "Size = %d B (%d Set x %d-way x %d byte line)\n", 
+        fprintf( fp, "Size = %d B (%d Set x %d-way x %d byte line)\n",
                  m_line_sz * m_nset * m_assoc,
                  m_nset, m_assoc, m_line_sz );
     }
@@ -306,7 +309,7 @@ protected:
         unsigned m_rob_entries;
     };
     unsigned m_result_fifo_entries;
-    unsigned m_data_port_width; //< number of byte the cache can access per cycle 
+    unsigned m_data_port_width; //< number of byte the cache can access per cycle
     enum set_index_function m_set_index_function; // Hash, linear, or custom set index function
 
     friend class tag_array;
@@ -316,6 +319,7 @@ protected:
     friend class data_cache;
     friend class l1_cache;
     friend class l2_cache;
+    friend class register_file_cache;
 };
 
 class l1d_cache_config : public cache_config{
@@ -358,6 +362,10 @@ public:
     void get_stats(unsigned &total_access, unsigned &total_misses, unsigned &total_hit_res, unsigned &total_res_fail) const;
 
 	void update_cache_parameters(cache_config &config);
+
+    // modified - add a function to set status to modified for RFC
+    void make_modified (unsigned idx) { m_lines[idx].m_status = MODIFIED; }
+
 protected:
     // This constructor is intended for use only from derived classes that wish to
     // avoid unnecessary memory allocation that takes place in the
@@ -429,9 +437,9 @@ private:
 
     struct mshr_entry {
         std::list<mem_fetch*> m_list;
-        bool m_has_atomic; 
+        bool m_has_atomic;
         mshr_entry() : m_has_atomic(false) { }
-    }; 
+    };
     typedef tr1_hash_map<new_addr_type,mshr_entry> table;
     table m_data;
 
@@ -451,9 +459,9 @@ struct cache_sub_stats{
     unsigned pending_hits;
     unsigned res_fails;
 
-    unsigned long long port_available_cycles; 
-    unsigned long long data_port_busy_cycles; 
-    unsigned long long fill_port_busy_cycles; 
+    unsigned long long port_available_cycles;
+    unsigned long long data_port_busy_cycles;
+    unsigned long long fill_port_busy_cycles;
 
     cache_sub_stats(){
         clear();
@@ -463,9 +471,9 @@ struct cache_sub_stats{
         misses = 0;
         pending_hits = 0;
         res_fails = 0;
-        port_available_cycles = 0; 
-        data_port_busy_cycles = 0; 
-        fill_port_busy_cycles = 0; 
+        port_available_cycles = 0;
+        data_port_busy_cycles = 0;
+        fill_port_busy_cycles = 0;
     }
     cache_sub_stats &operator+=(const cache_sub_stats &css){
         ///
@@ -475,9 +483,9 @@ struct cache_sub_stats{
         misses += css.misses;
         pending_hits += css.pending_hits;
         res_fails += css.res_fails;
-        port_available_cycles += css.port_available_cycles; 
-        data_port_busy_cycles += css.data_port_busy_cycles; 
-        fill_port_busy_cycles += css.fill_port_busy_cycles; 
+        port_available_cycles += css.port_available_cycles;
+        data_port_busy_cycles += css.data_port_busy_cycles;
+        fill_port_busy_cycles += css.fill_port_busy_cycles;
         return *this;
     }
 
@@ -490,13 +498,13 @@ struct cache_sub_stats{
         ret.misses = misses + cs.misses;
         ret.pending_hits = pending_hits + cs.pending_hits;
         ret.res_fails = res_fails + cs.res_fails;
-        ret.port_available_cycles = port_available_cycles + cs.port_available_cycles; 
-        ret.data_port_busy_cycles = data_port_busy_cycles + cs.data_port_busy_cycles; 
-        ret.fill_port_busy_cycles = fill_port_busy_cycles + cs.fill_port_busy_cycles; 
+        ret.port_available_cycles = port_available_cycles + cs.port_available_cycles;
+        ret.data_port_busy_cycles = data_port_busy_cycles + cs.data_port_busy_cycles;
+        ret.fill_port_busy_cycles = fill_port_busy_cycles + cs.fill_port_busy_cycles;
         return ret;
     }
 
-    void print_port_stats(FILE *fout, const char *cache_name) const; 
+    void print_port_stats(FILE *fout, const char *cache_name) const;
 };
 
 ///
@@ -520,15 +528,15 @@ public:
     unsigned get_stats(enum mem_access_type *access_type, unsigned num_access_type, enum cache_request_status *access_status, unsigned num_access_status)  const;
     void get_sub_stats(struct cache_sub_stats &css) const;
 
-    void sample_cache_port_utility(bool data_port_busy, bool fill_port_busy); 
+    void sample_cache_port_utility(bool data_port_busy, bool fill_port_busy);
 private:
     bool check_valid(int type, int status) const;
 
     std::vector< std::vector<unsigned> > m_stats;
 
-    unsigned long long m_cache_port_available_cycles; 
-    unsigned long long m_cache_data_port_busy_cycles; 
-    unsigned long long m_cache_fill_port_busy_cycles; 
+    unsigned long long m_cache_port_available_cycles;
+    unsigned long long m_cache_data_port_busy_cycles;
+    unsigned long long m_cache_fill_port_busy_cycles;
 };
 
 class cache_t {
@@ -536,9 +544,9 @@ public:
     virtual ~cache_t() {}
     virtual enum cache_request_status access( new_addr_type addr, mem_fetch *mf, unsigned time, std::list<cache_event> &events ) =  0;
 
-    // accessors for cache bandwidth availability 
-    virtual bool data_port_free() const = 0; 
-    virtual bool fill_port_free() const = 0; 
+    // accessors for cache bandwidth availability
+    virtual bool data_port_free() const = 0;
+    virtual bool fill_port_free() const = 0;
 };
 
 bool was_write_sent( const std::list<cache_event> &events );
@@ -551,9 +559,9 @@ class baseline_cache : public cache_t {
 public:
     baseline_cache( const char *name, cache_config &config, int core_id, int type_id, mem_fetch_interface *memport,
                      enum mem_fetch_status status )
-    : m_config(config), m_tag_array(new tag_array(config,core_id,type_id)), 
-      m_mshrs(config.m_mshr_entries,config.m_mshr_max_merge), 
-      m_bandwidth_management(config) 
+    : m_config(config), m_tag_array(new tag_array(config,core_id,type_id)),
+      m_mshrs(config.m_mshr_entries,config.m_mshr_max_merge),
+      m_bandwidth_management(config)
     {
         init( name, config, memport, status );
     }
@@ -608,9 +616,9 @@ public:
         m_stats.get_sub_stats(css);
     }
 
-    // accessors for cache bandwidth availability 
-    bool data_port_free() const { return m_bandwidth_management.data_port_free(); } 
-    bool fill_port_free() const { return m_bandwidth_management.fill_port_free(); } 
+    // accessors for cache bandwidth availability
+    bool data_port_free() const { return m_bandwidth_management.data_port_free(); }
+    bool fill_port_free() const { return m_bandwidth_management.fill_port_free(); }
 
 protected:
     // Constructor that can be used by derived classes with custom tag arrays
@@ -623,8 +631,8 @@ protected:
                     tag_array* new_tag_array )
     : m_config(config),
       m_tag_array( new_tag_array ),
-      m_mshrs(config.m_mshr_entries,config.m_mshr_max_merge), 
-      m_bandwidth_management(config) 
+      m_mshrs(config.m_mshr_entries,config.m_mshr_max_merge),
+      m_bandwidth_management(config)
     {
         init( name, config, memport, status );
     }
@@ -640,7 +648,7 @@ protected:
 
     struct extra_mf_fields {
         extra_mf_fields()  { m_valid = false;}
-        extra_mf_fields( new_addr_type a, unsigned i, unsigned d ) 
+        extra_mf_fields( new_addr_type a, unsigned i, unsigned d )
         {
             m_valid = true;
             m_block_addr = a;
@@ -670,33 +678,33 @@ protected:
     void send_read_request(new_addr_type addr, new_addr_type block_addr, unsigned cache_index, mem_fetch *mf,
     		unsigned time, bool &do_miss, bool &wb, cache_block_t &evicted, std::list<cache_event> &events, bool read_only, bool wa);
 
-    /// Sub-class containing all metadata for port bandwidth management 
-    class bandwidth_management 
+    /// Sub-class containing all metadata for port bandwidth management
+    class bandwidth_management
     {
-    public: 
-        bandwidth_management(cache_config &config); 
+    public:
+        bandwidth_management(cache_config &config);
 
-        /// use the data port based on the outcome and events generated by the mem_fetch request 
-        void use_data_port(mem_fetch *mf, enum cache_request_status outcome, const std::list<cache_event> &events); 
+        /// use the data port based on the outcome and events generated by the mem_fetch request
+        void use_data_port(mem_fetch *mf, enum cache_request_status outcome, const std::list<cache_event> &events);
 
-        /// use the fill port 
-        void use_fill_port(mem_fetch *mf); 
+        /// use the fill port
+        void use_fill_port(mem_fetch *mf);
 
-        /// called every cache cycle to free up the ports 
-        void replenish_port_bandwidth(); 
+        /// called every cache cycle to free up the ports
+        void replenish_port_bandwidth();
 
-        /// query for data port availability 
-        bool data_port_free() const; 
-        /// query for fill port availability 
-        bool fill_port_free() const; 
-    protected: 
-        const cache_config &m_config; 
+        /// query for data port availability
+        bool data_port_free() const;
+        /// query for fill port availability
+        bool fill_port_free() const;
+    protected:
+        const cache_config &m_config;
 
-        int m_data_port_occupied_cycles; //< Number of cycle that the data port remains used 
-        int m_fill_port_occupied_cycles; //< Number of cycle that the fill port remains used 
-    }; 
+        int m_data_port_occupied_cycles; //< Number of cycle that the data port remains used
+        int m_fill_port_occupied_cycles; //< Number of cycle that the fill port remains used
+    };
 
-    bandwidth_management m_bandwidth_management; 
+    bandwidth_management m_bandwidth_management;
 };
 
 /// Read only cache
@@ -712,6 +720,38 @@ public:
 
 protected:
     read_only_cache( const char *name, cache_config &config, int core_id, int type_id, mem_fetch_interface *memport, enum mem_fetch_status status, tag_array* new_tag_array )
+    : baseline_cache(name,config,core_id,type_id,memport,status, new_tag_array){}
+};
+
+/// modified - Register File Cache
+class register_file_cache : public baseline_cache {
+public:
+    register_file_cache( const char *name, cache_config &config, int core_id, int type_id, mem_fetch_interface *memport, enum mem_fetch_status status )
+    : baseline_cache(name,config,core_id,type_id,memport,status)
+    {
+        m_lines_inst = new warp_inst_t[config.get_num_lines()];
+    }
+
+    // add instruction tracking
+    warp_inst_t *m_lines_inst;
+
+    // Access function for RFC - cehck for miss or hit (modify status for hit)
+    virtual enum cache_request_status access ( new_addr_type addr, mem_fetch *mf, unsigned time, std::list<cache_event> &events );
+
+    // Fill function for RFC - writes to RFC and return evicted block
+    enum cache_request_status fill( new_addr_type addr, warp_inst_t inst, unsigned time, cache_block_t &evicted, warp_inst_t &inst_evicted);
+
+    // Test access function for RFC - find the evicted block info without modifying RFC
+    unsigned test_access(new_addr_type addr, unsigned &evicted_tag, warp_inst_t &inst_evicted);
+
+    // get line_size_log and num_set_log2 for address construction
+    unsigned get_line_sz_log2 () {return m_config.m_line_sz_log2; }
+    unsigned get_nset_log2 () {return m_config.m_nset_log2; }
+
+    virtual ~register_file_cache(){}
+
+protected:
+    register_file_cache( const char *name, cache_config &config, int core_id, int type_id, mem_fetch_interface *memport, enum mem_fetch_status status, tag_array* new_tag_array )
     : baseline_cache(name,config,core_id,type_id,memport,status, new_tag_array){}
 };
 
@@ -746,7 +786,7 @@ public:
         // READ_ONLY is now a separate cache class, config is deprecated
         case READ_ONLY:
             assert(0 && "Error: Writable Data_cache set as READ_ONLY\n");
-            break; 
+            break;
         case WRITE_BACK: m_wr_hit = &data_cache::wr_hit_wb; break;
         case WRITE_THROUGH: m_wr_hit = &data_cache::wr_hit_wt; break;
         case WRITE_EVICT: m_wr_hit = &data_cache::wr_hit_we; break;
@@ -974,18 +1014,18 @@ public:
 /*****************************************************************************/
 
 // See the following paper to understand this cache model:
-// 
-// Igehy, et al., Prefetching in a Texture Cache Architecture, 
+//
+// Igehy, et al., Prefetching in a Texture Cache Architecture,
 // Proceedings of the 1998 Eurographics/SIGGRAPH Workshop on Graphics Hardware
 // http://www-graphics.stanford.edu/papers/texture_prefetch/
 class tex_cache : public cache_t {
 public:
     tex_cache( const char *name, cache_config &config, int core_id, int type_id, mem_fetch_interface *memport,
-               enum mem_fetch_status request_status, 
+               enum mem_fetch_status request_status,
                enum mem_fetch_status rob_status )
-    : m_config(config), 
-    m_tags(config,core_id,type_id), 
-    m_fragment_fifo(config.m_fragment_fifo_entries), 
+    : m_config(config),
+    m_tags(config,core_id,type_id),
+    m_fragment_fifo(config.m_fragment_fifo_entries),
     m_request_fifo(config.m_request_fifo_entries),
     m_rob(config.m_rob_entries),
     m_result_fifo(config.m_result_fifo_entries)
@@ -1015,7 +1055,7 @@ public:
     mem_fetch *next_access(){return m_result_fifo.pop();}
     void display_state( FILE *fp ) const;
 
-    // accessors for cache bandwidth availability - stubs for now 
+    // accessors for cache bandwidth availability - stubs for now
     bool data_port_free() const { return true; }
     bool fill_port_free() const { return true; }
 
@@ -1051,12 +1091,12 @@ private:
 
     struct rob_entry {
         rob_entry() { m_ready = false; m_time=0; m_request=NULL;}
-        rob_entry( unsigned i, mem_fetch *mf, new_addr_type a ) 
-        { 
-            m_ready=false; 
+        rob_entry( unsigned i, mem_fetch *mf, new_addr_type a )
+        {
+            m_ready=false;
             m_index=i;
             m_time=0;
-            m_request=mf; 
+            m_request=mf;
             m_block_addr=a;
         }
         bool m_ready;
@@ -1075,48 +1115,48 @@ private:
     // TODO: replace fifo_pipeline with this?
     template<class T> class fifo {
     public:
-        fifo( unsigned size ) 
-        { 
-            m_size=size; 
-            m_num=0; 
-            m_head=0; 
-            m_tail=0; 
+        fifo( unsigned size )
+        {
+            m_size=size;
+            m_num=0;
+            m_head=0;
+            m_tail=0;
             m_data = new T[size];
         }
         bool full() const { return m_num == m_size;}
         bool empty() const { return m_num == 0;}
         unsigned size() const { return m_num;}
         unsigned capacity() const { return m_size;}
-        unsigned push( const T &e ) 
-        { 
-            assert(!full()); 
-            m_data[m_head] = e; 
+        unsigned push( const T &e )
+        {
+            assert(!full());
+            m_data[m_head] = e;
             unsigned result = m_head;
-            inc_head(); 
+            inc_head();
             return result;
         }
-        T pop() 
-        { 
-            assert(!empty()); 
+        T pop()
+        {
+            assert(!empty());
             T result = m_data[m_tail];
             inc_tail();
             return result;
         }
-        const T &peek( unsigned index ) const 
-        { 
+        const T &peek( unsigned index ) const
+        {
             assert( index < m_size );
-            return m_data[index]; 
+            return m_data[index];
         }
-        T &peek( unsigned index ) 
-        { 
+        T &peek( unsigned index )
+        {
             assert( index < m_size );
-            return m_data[index]; 
+            return m_data[index];
         }
         T &peek() const
-        { 
-            return m_data[m_tail]; 
+        {
+            return m_data[m_tail];
         }
-        unsigned next_pop_index() const 
+        unsigned next_pop_index() const
         {
             return m_tail;
         }
@@ -1144,7 +1184,7 @@ private:
 
     struct extra_mf_fields {
         extra_mf_fields()  { m_valid = false;}
-        extra_mf_fields( unsigned i ) 
+        extra_mf_fields( unsigned i )
         {
             m_valid = true;
             m_rob_index = i;
