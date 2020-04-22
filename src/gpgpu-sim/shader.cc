@@ -131,6 +131,9 @@ shader_core_ctx::shader_core_ctx( class gpgpu_sim *gpu,
     char name[STRSIZE];
     snprintf(name, STRSIZE, "L1I_%03d", m_sid);
     m_L1I = new read_only_cache( name,m_config->m_L1I_config,m_sid,get_shader_instruction_cache_id(),m_icnt,IN_L1I_MISS_QUEUE);
+   
+    // RFC
+    m_rfc = new register_cache( name, m_config->m_rfc_config, m_sid, get_shader_register_cache_id(), NULL, IN_L1I_MISS_QUEUE);
     
     m_warp.resize(m_config->max_warps_per_shader, shd_warp_t(this, warp_size));
     m_scoreboard = new Scoreboard(m_sid, m_config->max_warps_per_shader);

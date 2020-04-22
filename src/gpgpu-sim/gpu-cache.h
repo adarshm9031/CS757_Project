@@ -769,6 +769,7 @@ protected:
     friend class l1_cache;
     friend class l2_cache;
     friend class memory_sub_partition;
+    friend class register_cache;
 };
 
 class l1d_cache_config : public cache_config{
@@ -1754,4 +1755,36 @@ private:
     extra_mf_fields_lookup m_extra_mf_fields;
 };
 
+
+class register_cache : public baseline_cache {
+public:
+    register_cache( const char *name, cache_config &config, int core_id, int type_id, mem_fetch_interface *memport, enum mem_fetch_status status )
+    : baseline_cache(name,config,core_id,type_id,memport,status)
+    {
+        m_lines_inst = new warp_inst_t[config.get_num_lines()];
+    }
+
+    // add instruction tracking
+    warp_inst_t *m_lines_inst;
+   
+    // Access function for RFC - cehck for miss or hit (modify status for hit)
+    virtual enum cache_request_status access ( new_addr_type addr, mem_fetch *mf, unsigned time, std::list<cache_event> &events );
+   
+    // Fill function for RFC - writes to RFC and return evicted block
+    enum cache_request_status fill( new_addr_type addr, warp_inst_t inst, unsigned time, evicted_block_info &evicted, warp_inst_t &inst_evicted);
+   
+    // Test access function for RFC - find the evicted block info without modifying RFC
+    unsigned test_access(new_addr_type addr, unsigned &evicted_tag, warp_inst_t &inst_evicted);
+   
+    // get line_size_log and num_set_log2 for address construction
+    unsigned get_line_sz_log2 () {return m_config.m_line_sz_log2; }
+    unsigned get_nset_log2 () {return m_config.m_nset_log2; }
+    
+    virtual ~register_cache(){}
+
+protected:
+    register_cache( const char *name, cache_config &config, int core_id, int type_id, mem_fetch_interface *memport, enum mem_fetch_status status, tag_array* new_tag_array )
+    : baseline_cache(name,config,core_id,type_id,memport,status, new_tag_array){}
+};
+   
 #endif

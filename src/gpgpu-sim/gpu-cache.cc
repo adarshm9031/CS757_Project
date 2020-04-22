@@ -1822,5 +1822,78 @@ void tex_cache::display_state( FILE *fp ) const
         f.m_request->print(fp,false);
     }
 }
-/******************************************************************************************************************************************/
+
+
+// Register cache functions
+enum cache_request_status
+register_cache::access( new_addr_type addr, mem_fetch *mf,
+        unsigned time, std::list<cache_event> &events )
+{
+    //assert( mf->get_data_size() <= m_config.get_line_sz());
+    new_addr_type block_addr = m_config.block_addr(addr);
+    //bool wr = mf->get_is_write();
+    unsigned cache_index = (unsigned)-1;
+    enum cache_request_status cache_status = MISS;
+    // probe the cache to cehck HIT/MISS (doesn't change the cache)
+    enum cache_request_status probe_status = m_tag_array->probe(block_addr, cache_index, NULL);
+    // update LRU state
+    //std::cout << "RFC read: " << block_addr << "\n";
+    if (probe_status == HIT) {
+        //std::cout << "RFC HIT: " << block_addr << "\n";
+        cache_status = m_tag_array->access(block_addr,time,cache_index, mf);
+        //if (wr == true) // RFC write hit, only if previosuly written
+            //m_lines[idx].m_status = MODIFIED; // RFC write
+    }
+
+    // 0 access type is READS
+    m_stats.inc_stats(0, m_stats.select_stats_status(probe_status, cache_status));
+    return cache_status;
+}
+
+enum cache_request_status 
+register_cache::fill( new_addr_type addr,
+                                warp_inst_t inst, //instruction that is writing to RFC
+                                unsigned time,
+                                evicted_block_info &evicted,
+                                warp_inst_t &inst_evicted) // instruction whose register is being evicted
+                                //std::list<cache_event> &events )
+{
+    bool wb=false;
+    // For ON-MISS poilicy and modified evicted block, evicted will be non-NULL
+    unsigned cache_index = (unsigned)-1;
+    new_addr_type block_addr = m_config.block_addr(addr);
+    enum cache_request_status probe_status = m_tag_array->probe(block_addr, cache_index, NULL);
+    enum cache_request_status result = m_tag_array->access(addr,time,cache_index, wb, evicted, NULL);
+    //assert(!wb, "RFC allocation has to be set to ON MISS");
+    // RFC is always allocated on instrn write (so, always set to MODIFIED)
+    cache_block_t* block = m_tag_array->get_block(cache_index);
+    block->set_status(MODIFIED, NULL);
+    // tracking the instruction corresponding to a register in RFC
+    inst_evicted = m_lines_inst[cache_index];  // copy prev instruction
+    m_lines_inst[cache_index] = inst; // write new instruction
+
+    //std::cout << "RFC write: " << block_addr << "\n";
+    // 1 access type is WRITE
+    //m_stats.inc_stats(1, m_stats.select_stats_status(probe_status, result));
+    return result;
+}
+
+// Test access returns the inst and reg_id for the to be evicted cache - this info is reqd for bank calculation
+unsigned 
+register_cache::test_access(new_addr_type addr,
+        unsigned &evicted_tag, warp_inst_t &inst_evicted) {
+    //std::cout << "RFC test access" << "\n";
+    new_addr_type block_addr = m_config.block_addr(addr);
+    unsigned idx = (unsigned)-1;
+    enum cache_request_status probe_status = m_tag_array->probe(block_addr, idx, NULL);
+    cache_block_t* evicted_block = m_tag_array->get_block(idx);
+    evicted_tag = evicted_block->m_tag;
+    inst_evicted = m_lines_inst[idx];
+
+    // writeback of evicted is needed only if modified
+    if (evicted_block->get_status(NULL) == MODIFIED)
+        return 1;
+    else
+        return 0;
+}
 

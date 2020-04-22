@@ -1410,10 +1410,12 @@ struct shader_core_config : public core_config
 
         set_pipeline_latency();
         
-	m_L1I_config.init(m_L1I_config.m_config_string,FuncCachePreferNone);
+        m_L1I_config.init(m_L1I_config.m_config_string,FuncCachePreferNone);
         m_L1T_config.init(m_L1T_config.m_config_string,FuncCachePreferNone);
         m_L1C_config.init(m_L1C_config.m_config_string,FuncCachePreferNone);
         m_L1D_config.init(m_L1D_config.m_config_string,FuncCachePreferNone);
+        // RFC
+        m_rfc_config.init(m_rfc_config.m_config_string,FuncCachePreferNone);
         gpgpu_cache_texl1_linesize = m_L1T_config.get_line_sz();
         gpgpu_cache_constl1_linesize = m_L1C_config.get_line_sz();
         m_valid = true;
@@ -1447,6 +1449,8 @@ struct shader_core_config : public core_config
     mutable cache_config m_L1T_config;
     mutable cache_config m_L1C_config;
     mutable l1d_cache_config m_L1D_config;
+    // RFC
+    mutable cache_config m_rfc_config;
 
     bool gpgpu_dwf_reg_bankconflict;
 
@@ -2016,7 +2020,10 @@ public:
     std::vector<register_set> m_pipeline_reg;
     Scoreboard               *m_scoreboard;
     opndcoll_rfu_t            m_operand_collector;
+    // RFC
+    register_cache       *m_rfc;
     int m_active_warps;
+
 
     //schedule
     std::vector<scheduler_unit*>  schedulers;
