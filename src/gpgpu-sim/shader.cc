@@ -2534,10 +2534,26 @@ void gpgpu_sim::shader_print_scheduler_stat( FILE* fout, bool print_dynamic_info
 
 void gpgpu_sim::shader_print_cache_stats( FILE *fout ) const{
 
-    // L1I
+    
     struct cache_sub_stats total_css;
     struct cache_sub_stats css;
 
+    // RFC
+    if(!m_shader_config->m_rfc_config.disabled()) {
+        total_css.clear();
+        css.clear();
+        fprintf(fout, "Register cache stats:\n");
+        for ( unsigned i=0; i<m_shader_config->n_simt_clusters; i++) {
+            m_cluster[i]->get_rfc_sub_stats(css);
+            total_css += css;
+        }
+        fprintf(fout, "\tRFC_total_cache_accesses = %u\n", total_css.accesses);
+        fprintf(fout, "\tRFC_total_cache_misses = %u\n", total_css.misses);
+        fprintf(fout, "\tRFC_total_cache_pending_hits = %u\n", total_css.pending_hits);
+        fprintf(fout, "\tRFC_total_cache_reservation_fails = %u\n", total_css.res_fails);
+    }
+
+    // L1I
     if(!m_shader_config->m_L1I_config.disabled()){
         total_css.clear();
         css.clear();
@@ -3432,6 +3448,12 @@ void shader_core_ctx::get_cache_stats(cache_stats &cs){
     m_ldst_unit->get_cache_stats(cs); // Get L1D, L1C, L1T stats
 }
 
+// RFC
+void shader_core_ctx::get_rfc_sub_stats(struct cache_sub_stats &css) const{
+    if(m_rfc)
+        m_rfc->get_sub_stats(css);
+}
+
 void shader_core_ctx::get_L1I_sub_stats(struct cache_sub_stats &css) const{
     if(m_L1I)
         m_L1I->get_sub_stats(css);
@@ -3556,7 +3578,6 @@ void opndcoll_rfu_t::init( unsigned num_banks, shader_core_ctx *shader )
    m_shader=shader;
    // RFC
    op_rfc = m_shader->m_rfc;
-   std::cout << "Operand collector init\n\n";
    m_arbiter.init(m_cu.size(),num_banks);
    //for( unsigned n=0; n<m_num_ports;n++ ) 
    //    m_dispatch_units[m_output[n]].init( m_num_collector_units[n] );
@@ -3602,7 +3623,7 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
    std::list<unsigned> regs = m_shader->get_regs_written(inst);
    std::list<unsigned>::iterator r;
 
-   // RFC
+   // RF 
    for( r = regs.begin(); r != regs.end(); r++) { // TODO: do we need to use a different iteration as used in the below commented code
        unsigned reg = *r;
 
@@ -3625,7 +3646,6 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
 
        unsigned evict_valid = op_rfc->test_access(rfc_addr, tag_evicted, rfc_inst_evicted);
        reg_id_evicted = tag_evicted >> (line_sz_log2 + nset_log2);
-
        // if there is a reg to be evicted
        if ( evict_valid ) {
            unsigned bank = register_bank(reg_id_evicted, rfc_inst_evicted.warp_id(), m_num_banks, m_bank_warp_shift, sub_core_model, m_num_banks_per_sched, inst.get_schd_id());
@@ -3658,7 +3678,6 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
          }
       }
    }
-
 
    for(unsigned i=0;i<(unsigned)regs.size();i++){
 	      if(m_shader->get_config()->gpgpu_clock_gated_reg_file){
@@ -4110,6 +4129,19 @@ void simt_core_cluster::get_cache_stats(cache_stats &cs) const{
     for ( unsigned i = 0; i < m_config->n_simt_cores_per_cluster; ++i ) {
         m_core[i]->get_cache_stats(cs);
     }
+}
+
+// RFC
+void simt_core_cluster::get_rfc_sub_stats(struct cache_sub_stats &css) const{
+    struct cache_sub_stats temp_css;
+    struct cache_sub_stats total_css;
+    temp_css.clear();
+    total_css.clear();
+    for ( unsigned i=0; i<m_config->n_simt_cores_per_cluster; i++ ) {
+        m_core[i]->get_rfc_sub_stats(temp_css);
+        total_css += temp_css;
+    }
+    css = total_css;
 }
 
 void simt_core_cluster::get_L1I_sub_stats(struct cache_sub_stats &css) const{

@@ -350,11 +350,14 @@ enum cache_request_status tag_array::access( new_addr_type addr, unsigned time, 
     is_used = true;
     shader_cache_access_log(m_core_id, m_type_id, 0); // log accesses to cache
     enum cache_request_status status = probe(addr,idx,mf);
+    mem_access_sector_mask_t mask = 0;
+    if( mf != NULL)
+        mask = mf->get_access_sector_mask();
     switch (status) {
     case HIT_RESERVED: 
         m_pending_hit++;
     case HIT: 
-        m_lines[idx]->set_last_access_time(time, mf->get_access_sector_mask());
+        m_lines[idx]->set_last_access_time(time, mask);
         break;
     case MISS:
         m_miss++;
@@ -364,7 +367,7 @@ enum cache_request_status tag_array::access( new_addr_type addr, unsigned time, 
                 wb = true;
                 evicted.set_info(m_lines[idx]->m_block_addr, m_lines[idx]->get_modified_size());
             }
-            m_lines[idx]->allocate( m_config.tag(addr), m_config.block_addr(addr), time, mf->get_access_sector_mask());
+            m_lines[idx]->allocate( m_config.tag(addr), m_config.block_addr(addr), time, mask);
         }
         break;
     case SECTOR_MISS:
@@ -372,7 +375,7 @@ enum cache_request_status tag_array::access( new_addr_type addr, unsigned time, 
     	m_sector_miss++;
 		shader_cache_access_log(m_core_id, m_type_id, 1); // log cache misses
 		if ( m_config.m_alloc_policy == ON_MISS ) {
-			((sector_cache_block*)m_lines[idx])->allocate_sector( time, mf->get_access_sector_mask() );
+			((sector_cache_block*)m_lines[idx])->allocate_sector( time, mask);
 		}
 		break;
     case RESERVATION_FAIL:
@@ -389,7 +392,11 @@ enum cache_request_status tag_array::access( new_addr_type addr, unsigned time, 
 
 void tag_array::fill( new_addr_type addr, unsigned time, mem_fetch* mf)
 {
-    fill(addr, time, mf->get_access_sector_mask());
+    mem_access_sector_mask_t mask = 0;
+    if( mf != NULL)
+        mask = mf->get_access_sector_mask();
+
+    fill(addr, time, mask);
 }
 
 void tag_array::fill( new_addr_type addr, unsigned time, mem_access_sector_mask_t mask )
@@ -411,7 +418,7 @@ void tag_array::fill( new_addr_type addr, unsigned time, mem_access_sector_mask_
 void tag_array::fill( unsigned index, unsigned time, mem_fetch* mf)
 {
     assert( m_config.m_alloc_policy == ON_MISS );
-    m_lines[index]->fill(time, mf->get_access_sector_mask());
+    m_lines[index]->fill(time, mf?mf->get_access_sector_mask():0);
 }
 
 
@@ -1832,23 +1839,14 @@ enum cache_request_status
 register_cache::access( new_addr_type addr, mem_fetch *mf,
         unsigned time, std::list<cache_event> &events )
 {
-    //assert( mf->get_data_size() <= m_config.get_line_sz());
     new_addr_type block_addr = m_config.block_addr(addr);
-    //bool wr = mf->get_is_write();
     unsigned cache_index = (unsigned)-1;
     enum cache_request_status cache_status = MISS;
-    // probe the cache to cehck HIT/MISS (doesn't change the cache)
     enum cache_request_status probe_status = m_tag_array->probe(block_addr, cache_index, NULL);
-    // update LRU state
-    //std::cout << "RFC read: " << block_addr << "\n";
     if (probe_status == HIT) {
-        //std::cout << "RFC HIT: " << block_addr << "\n";
-        cache_status = m_tag_array->access(block_addr,time,cache_index, mf);
-        //if (wr == true) // RFC write hit, only if previosuly written
-            //m_lines[idx].m_status = MODIFIED; // RFC write
+        cache_status = m_tag_array->access(block_addr,time,cache_index, NULL);
     }
 
-    // 0 access type is READS
     m_stats.inc_stats(0, m_stats.select_stats_status(probe_status, cache_status));
     return cache_status;
 }
@@ -1867,18 +1865,15 @@ register_cache::fill( new_addr_type addr,
     new_addr_type block_addr = m_config.block_addr(addr);
     enum cache_request_status probe_status = m_tag_array->probe(block_addr, cache_index, NULL);
     enum cache_request_status result = m_tag_array->access(addr,time,cache_index, wb, evicted, NULL);
-    //assert(!wb, "RFC allocation has to be set to ON MISS");
-    // RFC is always allocated on instrn write (so, always set to MODIFIED)
     cache_block_t* block = m_tag_array->get_block(cache_index);
     block->set_status(MODIFIED, NULL);
     // tracking the instruction corresponding to a register in RFC
     inst_evicted = m_lines_inst[cache_index];  // copy prev instruction
     m_lines_inst[cache_index] = inst; // write new instruction
 
-    //std::cout << "RFC write: " << block_addr << "\n";
     // 1 access type is WRITE
     //m_stats.inc_stats(1, m_stats.select_stats_status(probe_status, result));
-    return result;
+    return MISS;
 }
 
 // Test access returns the inst and reg_id for the to be evicted cache - this info is reqd for bank calculation
