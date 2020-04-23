@@ -41,7 +41,7 @@
 #include <utility>
 #include <algorithm>
 #include <deque>
-
+#include <iostream>
 //#include "../cuda-sim/ptx.tab.h"
 
 #include "delayqueue.h"
@@ -567,6 +567,9 @@ public:
       m_num_banks=0;
       m_shader=NULL;
       m_initialized=false;
+
+      // RFC
+      op_rfc = NULL;
    }
    void add_cu_set(unsigned cu_set, unsigned num_cu, unsigned num_dispatch);
    typedef std::vector<register_set*> port_vector_t;
@@ -598,6 +601,8 @@ public:
    }
 
    shader_core_ctx *shader_core() { return m_shader; }
+
+   register_cache *rfc() { return op_rfc; }
 
 private:
 
@@ -741,6 +746,8 @@ private:
          _outmatch=NULL;
          _request=NULL;
          m_last_cu=0;
+         // RFC
+         rfc_queue=NULL;
       }
       void init( unsigned num_cu, unsigned num_banks ) 
       { 
@@ -754,6 +761,10 @@ private:
          for(unsigned i=0; i<m_num_banks;i++) 
              _request[i] = new int[m_num_collectors];
          m_queue = new std::list<op_t>[num_banks];
+         
+         // RFC
+         rfc_queue = new std::list<op_t>[num_banks];
+
          m_allocated_bank = new allocation_t[num_banks];
          m_allocator_rr_head = new unsigned[num_cu];
          for( unsigned n=0; n<num_cu;n++ ) 
@@ -786,14 +797,32 @@ private:
       // modifiers
       std::list<op_t> allocate_reads(); 
 
-      void add_read_requests( collector_unit_t *cu ) 
+      void add_read_requests( collector_unit_t *cu, register_cache *rfc, unsigned time=0 ) 
       {
          const op_t *src = cu->get_operands();
          for( unsigned i=0; i<MAX_REG_OPERANDS*2; i++) {
             const op_t &op = src[i];
             if( op.valid() ) {
                unsigned bank = op.get_bank();
-               m_queue[bank].push_back(op);
+               
+               // RFC              
+               unsigned rfc_reg = op.get_reg();
+               unsigned rfc_wid = op.get_wid();
+               unsigned line_sz_log2 = rfc->get_line_sz_log2();
+               unsigned nset_log2 = rfc->get_nset_log2();
+               
+               new_addr_type rfc_addr = ((rfc_reg << nset_log2) + rfc_wid) << line_sz_log2;
+               std::list<cache_event> events;
+
+               enum cache_request_status cache_status = MISS;
+               cache_status = rfc->access(rfc_addr, NULL, time, events);
+                
+               if (cache_status == HIT) {
+                   rfc_queue[0].push_back(op);
+               }
+               else {
+                   m_queue[bank].push_back(op);
+               }
             }
          }
       }
@@ -803,6 +832,7 @@ private:
       }
       void allocate_bank_for_write( unsigned bank, const op_t &op )
       {
+         assert (op.get_bank() == bank); // TODO:why is this necessary?
          assert( bank < m_num_banks );
          m_allocated_bank[bank].alloc_write(op);
       }
@@ -830,6 +860,10 @@ private:
       int *_inmatch;
       int *_outmatch;
       int **_request;
+
+   public:
+      // RFC
+      std::list<op_t> *rfc_queue;
    };
 
    class input_port_t {
@@ -969,6 +1003,9 @@ private:
    //port_to_du_t                     m_dispatch_units;
    //std::map<warp_inst_t**,std::list<collector_unit_t*> > m_free_cu;
    shader_core_ctx                 *m_shader;
+
+   // RFC
+   register_cache *op_rfc;
 };
 
 class barrier_set_t {
@@ -1768,6 +1805,8 @@ private:
 
 class shader_core_ctx : public core_t {
 public:
+    // RFC
+    register_cache       *m_rfc;
     // creator:
     shader_core_ctx( class gpgpu_sim *gpu,
                      class simt_core_cluster *cluster,
@@ -2020,8 +2059,6 @@ public:
     std::vector<register_set> m_pipeline_reg;
     Scoreboard               *m_scoreboard;
     opndcoll_rfu_t            m_operand_collector;
-    // RFC
-    register_cache       *m_rfc;
     int m_active_warps;
 
 

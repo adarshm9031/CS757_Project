@@ -46,6 +46,7 @@
 #include <limits.h>
 #include "traffic_breakdown.h"
 #include "shader_trace.h"
+#include <iostream>
 
 #define PRIORITIZE_MSHR_OVER_WB 1
 #define MAX(a,b) (((a)>(b))?(a):(b))
@@ -133,6 +134,7 @@ shader_core_ctx::shader_core_ctx( class gpgpu_sim *gpu,
     m_L1I = new read_only_cache( name,m_config->m_L1I_config,m_sid,get_shader_instruction_cache_id(),m_icnt,IN_L1I_MISS_QUEUE);
    
     // RFC
+    snprintf(name, STRSIZE, "RFC_%03d", m_sid);
     m_rfc = new register_cache( name, m_config->m_rfc_config, m_sid, get_shader_register_cache_id(), NULL, IN_L1I_MISS_QUEUE);
     
     m_warp.resize(m_config->max_warps_per_shader, shd_warp_t(this, warp_size));
@@ -3552,6 +3554,9 @@ void opndcoll_rfu_t::add_port(port_vector_t & input, port_vector_t & output, uin
 void opndcoll_rfu_t::init( unsigned num_banks, shader_core_ctx *shader )
 {
    m_shader=shader;
+   // RFC
+   op_rfc = m_shader->m_rfc;
+   std::cout << "Operand collector init\n\n";
    m_arbiter.init(m_cu.size(),num_banks);
    //for( unsigned n=0; n<m_num_ports;n++ ) 
    //    m_dispatch_units[m_output[n]].init( m_num_collector_units[n] );
@@ -3595,6 +3600,52 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
 {
    assert( !inst.empty() );
    std::list<unsigned> regs = m_shader->get_regs_written(inst);
+   std::list<unsigned>::iterator r;
+
+   // RFC
+   for( r = regs.begin(); r != regs.end(); r++) { // TODO: do we need to use a different iteration as used in the below commented code
+       unsigned reg = *r;
+
+       op_t *rfc_dest_op;
+       rfc_dest_op = new op_t(&inst,reg,m_num_banks,m_bank_warp_shift, sub_core_model, m_num_banks_per_sched, inst.get_schd_id());
+
+       unsigned rfc_reg = rfc_dest_op->get_reg(); // tag for a fully assoc RFC
+       unsigned rfc_wid = rfc_dest_op->get_wid(); // set index
+
+       unsigned line_sz_log2 = op_rfc->get_line_sz_log2();
+       unsigned nset_log2 = op_rfc->get_nset_log2();
+       new_addr_type rfc_addr = ((rfc_reg << nset_log2) + rfc_wid) << line_sz_log2;
+
+       unsigned rfc_time = gpu_sim_cycle+gpu_tot_sim_cycle;
+
+       evicted_block_info rfc_evicted;
+       warp_inst_t rfc_inst_evicted;
+       unsigned tag_evicted;
+       unsigned reg_id_evicted;
+
+       unsigned evict_valid = op_rfc->test_access(rfc_addr, tag_evicted, rfc_inst_evicted);
+       reg_id_evicted = tag_evicted >> (line_sz_log2 + nset_log2);
+
+       // if there is a reg to be evicted
+       if ( evict_valid ) {
+           unsigned bank = register_bank(reg_id_evicted, rfc_inst_evicted.warp_id(), m_num_banks, m_bank_warp_shift, sub_core_model, m_num_banks_per_sched, inst.get_schd_id());
+           // if the bank of the evicted reg is empty
+           if ( m_arbiter.bank_idle(bank)) {
+               enum cache_request_status cache_access = op_rfc->fill (rfc_addr, inst, rfc_time, rfc_evicted, rfc_inst_evicted);
+               // TODO: need to figure out why this check. My guess is that if it misses in the cache, no need of updating the old value to the main register file.
+               if (cache_access != HIT) {
+                   m_arbiter.allocate_bank_for_write(bank,op_t(&rfc_inst_evicted,reg_id_evicted,m_num_banks,m_bank_warp_shift,sub_core_model,m_num_banks_per_sched,inst.get_schd_id()));
+               }
+           }
+           else {
+               return false;
+           }
+       }
+       else {
+           enum cache_request_status cache_access = op_rfc->fill (rfc_addr, inst, rfc_time, rfc_evicted, rfc_inst_evicted);
+       }
+   }
+
    for( unsigned op=0; op < MAX_REG_OPERANDS; op++ ) {
       int reg_num = inst.arch_reg.dst[op]; // this math needs to match that used in function_info::ptx_decode_inst
       if( reg_num >= 0 ){ // valid register
@@ -3607,6 +3658,8 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
          }
       }
    }
+
+
    for(unsigned i=0;i<(unsigned)regs.size();i++){
 	      if(m_shader->get_config()->gpgpu_clock_gated_reg_file){
 	    	  unsigned active_count=0;
@@ -3661,12 +3714,14 @@ void opndcoll_rfu_t::allocate_cu( unsigned port_num )
           //find a free cu 
           for (unsigned j = 0; j < inp.m_cu_sets.size(); j++) {
               std::vector<collector_unit_t> & cu_set = m_cus[inp.m_cu_sets[j]];
-	      bool allocated = false;
+	          bool allocated = false;
               for (unsigned k = 0; k < cu_set.size(); k++) {
                   if(cu_set[k].is_free()) {
                      collector_unit_t *cu = &cu_set[k];
                      allocated = cu->allocate(inp.m_in[i],inp.m_out[i]);
-                     m_arbiter.add_read_requests(cu);
+                     // RFC
+                     unsigned time_rfc = gpu_sim_cycle + gpu_tot_sim_cycle;
+                     m_arbiter.add_read_requests(cu, op_rfc, time_rfc);
                      break;
                   }
               }
@@ -3710,6 +3765,14 @@ void opndcoll_rfu_t::allocate_reads()
       }else{
     	  m_shader->incregfile_reads(m_shader->get_config()->warp_size);//op.get_active_count());
       }
+  }
+
+  // RFC
+  for (std::list<op_t>::iterator r=m_arbiter.rfc_queue[0].begin(); r!=m_arbiter.rfc_queue[0].end(); r++) {
+      op_t &op_rfc = *r;
+      unsigned cu = op_rfc.get_oc_id();
+      unsigned operand = op_rfc.get_operand();
+      m_cu[cu]->collect_operand(operand);
   }
 } 
 

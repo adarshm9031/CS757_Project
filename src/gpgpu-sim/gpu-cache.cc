@@ -244,7 +244,10 @@ void tag_array::remove_pending_line(mem_fetch *mf){
 }
 
 enum cache_request_status tag_array::probe( new_addr_type addr, unsigned &idx, mem_fetch* mf, bool probe_mode) const {
-    mem_access_sector_mask_t mask = mf->get_access_sector_mask();
+    mem_access_sector_mask_t mask = 0;
+    if (mf != NULL) {
+        mask = mf->get_access_sector_mask();
+    }
     return probe(addr, idx, mask, probe_mode, mf);
 }
 

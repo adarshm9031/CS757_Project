@@ -242,7 +242,7 @@ void shader_core_config::reg_options(class OptionParser * opp)
     option_parser_register(opp, "-gpgpu_cache:rfc", OPT_CSTR, &m_rfc_config.m_config_string,
                    "shader register file cache config"
                    " {<nsets>:<bsize>:<assoc>,<rep>:<wr>:<alloc>:<wr_alloc>,<mshr>:<N>:<merge>,<mq>} ",
-                   "" ); // TODO: fill up the default values
+                   "32:256:8,L:R:f:N:N,A:128:8,32" ); // TODO: fill up the default values
     option_parser_register(opp, "-gpgpu_tex_cache:l1", OPT_CSTR, &m_L1T_config.m_config_string, 
                    "per-shader L1 texture cache  (READ-ONLY) config "
                    " {<nsets>:<bsize>:<assoc>,<rep>:<wr>:<alloc>:<wr_alloc>,<mshr>:<N>:<merge>,<mq>:<rf>}",
