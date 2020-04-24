@@ -1873,7 +1873,7 @@ register_cache::fill( new_addr_type addr,
 
     // 1 access type is WRITE
     //m_stats.inc_stats(1, m_stats.select_stats_status(probe_status, result));
-    return MISS;
+    return result;
 }
 
 // Test access returns the inst and reg_id for the to be evicted cache - this info is reqd for bank calculation

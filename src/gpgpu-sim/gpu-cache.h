@@ -553,6 +553,31 @@ public:
         case 's': m_alloc_policy = STREAMING; break;
         default: exit_parse_error();
         }
+        //For more details about difference between FETCH_ON_WRITE and WRITE VALIDAE policies
+        //Read: Jouppi, Norman P. "Cache write policies and performance". ISCA 93.
+        //WRITE_ALLOCATE is the old write policy in GPGPU-sim 3.x, that send WRITE and READ for every write request
+        switch(wap){
+        case 'N': m_write_alloc_policy = NO_WRITE_ALLOCATE; break;
+        case 'W': m_write_alloc_policy = WRITE_ALLOCATE; break;
+        case 'F': m_write_alloc_policy = FETCH_ON_WRITE; break;
+        case 'L': m_write_alloc_policy = LAZY_FETCH_ON_READ; break;
+		default: exit_parse_error();
+        }
+        switch(sif){
+        case 'H': m_set_index_function = FERMI_HASH_SET_FUNCTION; break;
+        case 'P': m_set_index_function = HASH_IPOLY_FUNCTION; break;
+        case 'C': m_set_index_function = CUSTOM_SET_FUNCTION; break;
+        case 'L': m_set_index_function = LINEAR_SET_FUNCTION; break;
+        default: exit_parse_error();
+        }
+        switch (mshr_type) {
+        case 'F': m_mshr_type = TEX_FIFO; assert(ntok==14); break;
+        case 'T': m_mshr_type = SECTOR_TEX_FIFO; assert(ntok==14); break;
+        case 'A': m_mshr_type = ASSOC; break;
+        case 'S' : m_mshr_type = SECTOR_ASSOC; break;
+        default: exit_parse_error();
+        }
+
         if(m_alloc_policy == STREAMING) {
         	//For streaming cache, we set the alloc policy to be on-fill to remove all line_alloc_fail stalls
         	//we set the MSHRs to be equal to max allocated cache lines. This is possible by moving TAG to be shared between cache line and MSHR enrty (i.e. for each cache line, there is an MSHR rntey associated with it)
@@ -568,29 +593,12 @@ public:
 				m_mshr_entries *=  SECTOR_CHUNCK_SIZE;
 			m_mshr_max_merge = MAX_WARP_PER_SM;
         }
-        switch (mshr_type) {
-        case 'F': m_mshr_type = TEX_FIFO; assert(ntok==14); break;
-        case 'T': m_mshr_type = SECTOR_TEX_FIFO; assert(ntok==14); break;
-        case 'A': m_mshr_type = ASSOC; break;
-        case 'S' : m_mshr_type = SECTOR_ASSOC; break;
-        default: exit_parse_error();
-        }
         m_line_sz_log2 = LOGB2(m_line_sz);
         m_nset_log2 = LOGB2(m_nset);
         m_valid = true;
         m_atom_sz = (m_cache_type == SECTOR)? SECTOR_SIZE : m_line_sz;
         original_m_assoc = m_assoc;
 
-        //For more details about difference between FETCH_ON_WRITE and WRITE VALIDAE policies
-        //Read: Jouppi, Norman P. "Cache write policies and performance". ISCA 93.
-        //WRITE_ALLOCATE is the old write policy in GPGPU-sim 3.x, that send WRITE and READ for every write request
-        switch(wap){
-        case 'N': m_write_alloc_policy = NO_WRITE_ALLOCATE; break;
-        case 'W': m_write_alloc_policy = WRITE_ALLOCATE; break;
-        case 'F': m_write_alloc_policy = FETCH_ON_WRITE; break;
-        case 'L': m_write_alloc_policy = LAZY_FETCH_ON_READ; break;
-		default: exit_parse_error();
-        }
 
         // detect invalid configuration 
         if (m_alloc_policy == ON_FILL and m_write_policy == WRITE_BACK) {
@@ -621,13 +629,6 @@ public:
         }
         assert(m_line_sz % m_data_port_width == 0); 
 
-        switch(sif){
-        case 'H': m_set_index_function = FERMI_HASH_SET_FUNCTION; break;
-        case 'P': m_set_index_function = HASH_IPOLY_FUNCTION; break;
-        case 'C': m_set_index_function = CUSTOM_SET_FUNCTION; break;
-        case 'L': m_set_index_function = LINEAR_SET_FUNCTION; break;
-        default: exit_parse_error();
-        }
     }
     bool disabled() const { return m_disabled;}
     unsigned get_line_sz() const

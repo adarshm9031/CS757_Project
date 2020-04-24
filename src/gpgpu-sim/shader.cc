@@ -3597,10 +3597,6 @@ void opndcoll_rfu_t::init( unsigned num_banks, shader_core_ctx *shader )
        m_cu[j]->init(j,num_banks,m_bank_warp_shift,shader->get_config(),this, sub_core_model, m_num_banks_per_sched );
    }
    m_initialized=true;
-
-
-
-
 }
 
 int register_bank(int regnum, int wid, unsigned num_banks, unsigned bank_warp_shift, bool sub_core_model, unsigned banks_per_sched, unsigned sched_id)
@@ -3646,11 +3642,12 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
 
        unsigned evict_valid = op_rfc->test_access(rfc_addr, tag_evicted, rfc_inst_evicted);
        reg_id_evicted = tag_evicted >> (line_sz_log2 + nset_log2);
-       // if there is a reg to be evicted
+       // if there is a reg to be evicted and written back to main register file
        if ( evict_valid ) {
            unsigned bank = register_bank(reg_id_evicted, rfc_inst_evicted.warp_id(), m_num_banks, m_bank_warp_shift, sub_core_model, m_num_banks_per_sched, inst.get_schd_id());
            // if the bank of the evicted reg is empty
            if ( m_arbiter.bank_idle(bank)) {
+               std::cout << "Writing to RFC: " << rfc_addr << std::endl;
                enum cache_request_status cache_access = op_rfc->fill (rfc_addr, inst, rfc_time, rfc_evicted, rfc_inst_evicted);
                // TODO: need to figure out why this check. My guess is that if it misses in the cache, no need of updating the old value to the main register file.
                if (cache_access != HIT) {
@@ -3666,6 +3663,7 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
        }
    }
 
+/*
    for( unsigned op=0; op < MAX_REG_OPERANDS; op++ ) {
       int reg_num = inst.arch_reg.dst[op]; // this math needs to match that used in function_info::ptx_decode_inst
       if( reg_num >= 0 ){ // valid register
@@ -3678,6 +3676,7 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
          }
       }
    }
+*/
 
    for(unsigned i=0;i<(unsigned)regs.size();i++){
 	      if(m_shader->get_config()->gpgpu_clock_gated_reg_file){
