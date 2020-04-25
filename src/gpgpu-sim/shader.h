@@ -818,7 +818,7 @@ private:
                cache_status = rfc->access(rfc_addr, NULL, time, events);
                 
                if (cache_status == HIT) {
-                   rfc_queue[0].push_back(op);
+                   rfc_queue[0].push_back(op); // TODO: Should we design a banked RFC? If yes, we need separate queues
                }
                else {
                    m_queue[bank].push_back(op);

@@ -3620,7 +3620,7 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
    std::list<unsigned>::iterator r;
 
    // RF 
-   for( r = regs.begin(); r != regs.end(); r++) { // TODO: do we need to use a different iteration as used in the below commented code
+   for( r = regs.begin(); r != regs.end(); r++) {
        unsigned reg = *r;
 
        op_t *rfc_dest_op;
@@ -3647,7 +3647,6 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
            unsigned bank = register_bank(reg_id_evicted, rfc_inst_evicted.warp_id(), m_num_banks, m_bank_warp_shift, sub_core_model, m_num_banks_per_sched, inst.get_schd_id());
            // if the bank of the evicted reg is empty
            if ( m_arbiter.bank_idle(bank)) {
-               std::cout << "Writing to RFC: " << rfc_addr << std::endl;
                enum cache_request_status cache_access = op_rfc->fill (rfc_addr, inst, rfc_time, rfc_evicted, rfc_inst_evicted);
                // TODO: need to figure out why this check. My guess is that if it misses in the cache, no need of updating the old value to the main register file.
                if (cache_access != HIT) {
@@ -3660,6 +3659,9 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
        }
        else {
            enum cache_request_status cache_access = op_rfc->fill (rfc_addr, inst, rfc_time, rfc_evicted, rfc_inst_evicted);
+           // TODO: return false if failed to write to RFC?
+           if (cache_access != HIT)
+               return false;
        }
    }
 
@@ -3689,7 +3691,7 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
 	    			  }
 	    		  }
 	    	  }
-	    	  m_shader->incregfile_writes(active_count);
+	    	  m_shader->incregfile_writes(active_count); // TODO: aren't we supposed to increment this only for writebacks?
 	      }else{
 	    	  m_shader->incregfile_writes(m_shader->get_config()->warp_size);//inst.active_count());
 	      }
@@ -3755,6 +3757,8 @@ void opndcoll_rfu_t::allocate_reads()
    // process read requests that do not have conflicts
    std::list<op_t> allocated = m_arbiter.allocate_reads();
    std::map<unsigned,op_t> read_ops;
+
+   // access operators being read from the main register file
    for( std::list<op_t>::iterator r=allocated.begin(); r!=allocated.end(); r++ ) {
       const op_t &rr = *r;
       unsigned reg = rr.get_reg();
@@ -3779,13 +3783,13 @@ void opndcoll_rfu_t::allocate_reads()
     			  }
     		  }
     	  }
-    	  m_shader->incregfile_reads(active_count);
+    	  m_shader->incregfile_reads(active_count); // TODO: this is correct.
       }else{
     	  m_shader->incregfile_reads(m_shader->get_config()->warp_size);//op.get_active_count());
       }
   }
 
-  // RFC
+  // RFC : access operands from the RFC
   for (std::list<op_t>::iterator r=m_arbiter.rfc_queue[0].begin(); r!=m_arbiter.rfc_queue[0].end(); r++) {
       op_t &op_rfc = *r;
       unsigned cu = op_rfc.get_oc_id();

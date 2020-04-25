@@ -1833,20 +1833,20 @@ void tex_cache::display_state( FILE *fp ) const
     }
 }
 
-
-// Register cache functions
+// RFC
 enum cache_request_status
 register_cache::access( new_addr_type addr, mem_fetch *mf,
         unsigned time, std::list<cache_event> &events )
 {
-    new_addr_type block_addr = m_config.block_addr(addr);
+    new_addr_type block_addr = m_config.block_addr(addr); // extract the block addr
     unsigned cache_index = (unsigned)-1;
     enum cache_request_status cache_status = MISS;
     enum cache_request_status probe_status = m_tag_array->probe(block_addr, cache_index, NULL);
-    if (probe_status == HIT) {
+    if (probe_status == HIT) { // TODO: Why access RFC only if HIT? Why not bring the data into the cache on a MISS?
         cache_status = m_tag_array->access(block_addr,time,cache_index, NULL);
     }
 
+    // TODO: update stats_pw as well?
     m_stats.inc_stats(0, m_stats.select_stats_status(probe_status, cache_status));
     return cache_status;
 }
@@ -1857,14 +1857,14 @@ register_cache::fill( new_addr_type addr,
                                 unsigned time,
                                 evicted_block_info &evicted,
                                 warp_inst_t &inst_evicted) // instruction whose register is being evicted
-                                //std::list<cache_event> &events )
 {
     bool wb=false;
     // For ON-MISS poilicy and modified evicted block, evicted will be non-NULL
     unsigned cache_index = (unsigned)-1;
     new_addr_type block_addr = m_config.block_addr(addr);
-    enum cache_request_status probe_status = m_tag_array->probe(block_addr, cache_index, NULL);
+    enum cache_request_status probe_status = m_tag_array->probe(block_addr, cache_index, NULL); // TODO: why do we need to probe? access will anyway do that!
     enum cache_request_status result = m_tag_array->access(addr,time,cache_index, wb, evicted, NULL);
+
     cache_block_t* block = m_tag_array->get_block(cache_index);
     block->set_status(MODIFIED, NULL);
     // tracking the instruction corresponding to a register in RFC
@@ -1872,6 +1872,7 @@ register_cache::fill( new_addr_type addr,
     m_lines_inst[cache_index] = inst; // write new instruction
 
     // 1 access type is WRITE
+    // TODO: do we want to separate read and write misses?
     //m_stats.inc_stats(1, m_stats.select_stats_status(probe_status, result));
     return result;
 }
@@ -1880,7 +1881,6 @@ register_cache::fill( new_addr_type addr,
 unsigned 
 register_cache::test_access(new_addr_type addr,
         unsigned &evicted_tag, warp_inst_t &inst_evicted) {
-    //std::cout << "RFC test access" << "\n";
     new_addr_type block_addr = m_config.block_addr(addr);
     unsigned idx = (unsigned)-1;
     enum cache_request_status probe_status = m_tag_array->probe(block_addr, idx, NULL);
