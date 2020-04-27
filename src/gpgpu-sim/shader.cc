@@ -3644,13 +3644,13 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
        reg_id_evicted = tag_evicted >> (line_sz_log2 + nset_log2);
        // if there is a reg to be evicted and written back to main register file
        if ( evict_valid ) {
-           unsigned bank = register_bank(reg_id_evicted, rfc_inst_evicted.warp_id(), m_num_banks, m_bank_warp_shift, sub_core_model, m_num_banks_per_sched, inst.get_schd_id());
+           unsigned bank = register_bank(reg_id_evicted, rfc_inst_evicted.warp_id(), m_num_banks, m_bank_warp_shift, sub_core_model, m_num_banks_per_sched, rfc_inst_evicted.get_schd_id());
            // if the bank of the evicted reg is empty
            if ( m_arbiter.bank_idle(bank)) {
                enum cache_request_status cache_access = op_rfc->fill (rfc_addr, inst, rfc_time, rfc_evicted, rfc_inst_evicted);
                // TODO: need to figure out why this check. My guess is that if it misses in the cache, no need of updating the old value to the main register file.
                if (cache_access != HIT) {
-                   m_arbiter.allocate_bank_for_write(bank,op_t(&rfc_inst_evicted,reg_id_evicted,m_num_banks,m_bank_warp_shift,sub_core_model,m_num_banks_per_sched,inst.get_schd_id()));
+                   m_arbiter.allocate_bank_for_write(bank,op_t(&rfc_inst_evicted,reg_id_evicted,m_num_banks,m_bank_warp_shift,sub_core_model,m_num_banks_per_sched,rfc_inst_evicted.get_schd_id()));
                }
            }
            else {
@@ -3658,12 +3658,10 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
            }
        }
        else {
-           enum cache_request_status cache_access = op_rfc->fill (rfc_addr, inst, rfc_time, rfc_evicted, rfc_inst_evicted);
-           // TODO: return false if failed to write to RFC?
-           if (cache_access != HIT)
-               return false;
+           op_rfc->fill (rfc_addr, inst, rfc_time, rfc_evicted, rfc_inst_evicted);
        }
    }
+     }
 
 /*
    for( unsigned op=0; op < MAX_REG_OPERANDS; op++ ) {
