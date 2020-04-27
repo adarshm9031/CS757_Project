@@ -1762,7 +1762,9 @@ public:
 
     // add instruction tracking
     warp_inst_t *m_lines_inst;
-   
+  
+    enum cache_request_status probe( new_addr_type addr);
+     
     // Access function for RFC - cehck for miss or hit (modify status for hit)
     virtual enum cache_request_status access ( new_addr_type addr, mem_fetch *mf, unsigned time, std::list<cache_event> &events );
    

@@ -3089,6 +3089,27 @@ void shader_core_ctx::cache_invalidate()
    m_ldst_unit->invalidate();
 }
 
+void opndcoll_rfu_t::arbiter_t::clear_the_mess(register_cache *rfc)
+{
+   for (unsigned i=0; i<m_num_banks; i++) {
+       while(!m_queue[i].empty()) {
+            op_t &op = m_queue[i].front();
+
+            unsigned reg = op.get_reg();
+            unsigned wid = op.get_wid();
+            unsigned line_sz_log2 = rfc->get_line_sz_log2();
+            unsigned nset_log2 = rfc->get_nset_log2();
+            new_addr_type rfc_addr = ((reg << nset_log2) + wid) << line_sz_log2; 
+
+            enum cache_request_status cache_status = rfc->probe(rfc_addr);
+            if( cache_status == HIT)
+               m_queue[i].pop_front();
+            else
+                   break;
+       }
+   }
+}
+
 // modifiers
 std::list<opndcoll_rfu_t::op_t> opndcoll_rfu_t::arbiter_t::allocate_reads() 
 {
@@ -3162,6 +3183,9 @@ std::list<opndcoll_rfu_t::op_t> opndcoll_rfu_t::arbiter_t::allocate_reads()
          if( !m_allocated_bank[i].is_write() ) {
             unsigned bank = (unsigned)i;
             op_t &op = m_queue[bank].front();
+//            std::cout<<"2.reg:"<<op.get_reg()<<" w:"<<op.get_wid()<<" b:"<<i<<" rb:"<< (op.get_reg()+op.get_wid())%m_num_banks<<std::endl;
+//            assert (bank == (op.get_bank()));
+            unsigned bank2 =  (op.get_reg()+op.get_wid())%m_num_banks;
             result.push_back(op);
             m_queue[bank].pop_front();
          }
@@ -3619,7 +3643,7 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
    std::list<unsigned> regs = m_shader->get_regs_written(inst);
    std::list<unsigned>::iterator r;
 
-   // RF 
+   // RFC 
    for( r = regs.begin(); r != regs.end(); r++) {
        unsigned reg = *r;
 
@@ -3641,29 +3665,27 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
        unsigned reg_id_evicted;
 
        unsigned evict_valid = op_rfc->test_access(rfc_addr, tag_evicted, rfc_inst_evicted);
-       reg_id_evicted = tag_evicted >> (line_sz_log2 + nset_log2);
        // if there is a reg to be evicted and written back to main register file
        if ( evict_valid ) {
+           reg_id_evicted = tag_evicted >> (line_sz_log2 + nset_log2);
            unsigned bank = register_bank(reg_id_evicted, rfc_inst_evicted.warp_id(), m_num_banks, m_bank_warp_shift, sub_core_model, m_num_banks_per_sched, rfc_inst_evicted.get_schd_id());
            // if the bank of the evicted reg is empty
            if ( m_arbiter.bank_idle(bank)) {
                enum cache_request_status cache_access = op_rfc->fill (rfc_addr, inst, rfc_time, rfc_evicted, rfc_inst_evicted);
-               // TODO: need to figure out why this check. My guess is that if it misses in the cache, no need of updating the old value to the main register file.
                if (cache_access != HIT) {
                    m_arbiter.allocate_bank_for_write(bank,op_t(&rfc_inst_evicted,reg_id_evicted,m_num_banks,m_bank_warp_shift,sub_core_model,m_num_banks_per_sched,rfc_inst_evicted.get_schd_id()));
+	    	       m_shader->incregfile_writes(m_shader->get_config()->warp_size);//inst.active_count());
                }
            }
-           else {
+           else
                return false;
-           }
        }
        else {
            op_rfc->fill (rfc_addr, inst, rfc_time, rfc_evicted, rfc_inst_evicted);
        }
    }
-     }
 
-/*
+
    for( unsigned op=0; op < MAX_REG_OPERANDS; op++ ) {
       int reg_num = inst.arch_reg.dst[op]; // this math needs to match that used in function_info::ptx_decode_inst
       if( reg_num >= 0 ){ // valid register
@@ -3676,7 +3698,7 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
          }
       }
    }
-*/
+
 
    for(unsigned i=0;i<(unsigned)regs.size();i++){
 	      if(m_shader->get_config()->gpgpu_clock_gated_reg_file){
@@ -3690,9 +3712,10 @@ bool opndcoll_rfu_t::writeback( warp_inst_t &inst )
 	    		  }
 	    	  }
 	    	  m_shader->incregfile_writes(active_count); // TODO: aren't we supposed to increment this only for writebacks?
-	      }else{
-	    	  m_shader->incregfile_writes(m_shader->get_config()->warp_size);//inst.active_count());
 	      }
+          //else{
+	      //	  m_shader->incregfile_writes(m_shader->get_config()->warp_size);//inst.active_count());
+	      //}
    }
    return true;
 }
@@ -3752,17 +3775,31 @@ void opndcoll_rfu_t::allocate_cu( unsigned port_num )
 
 void opndcoll_rfu_t::allocate_reads()
 {
+   //m_arbiter.clear_the_mess(op_rfc);
    // process read requests that do not have conflicts
    std::list<op_t> allocated = m_arbiter.allocate_reads();
    std::map<unsigned,op_t> read_ops;
-
+   unsigned rf = m_num_banks+1;
+   unsigned line_sz_log2 = op_rfc->get_line_sz_log2();
+   unsigned nset_log2 = op_rfc->get_nset_log2();
+   std::list<cache_event> events;
+   
    // access operators being read from the main register file
    for( std::list<op_t>::iterator r=allocated.begin(); r!=allocated.end(); r++ ) {
       const op_t &rr = *r;
       unsigned reg = rr.get_reg();
       unsigned wid = rr.get_wid();
       unsigned bank = register_bank(reg,wid,m_num_banks,m_bank_warp_shift,sub_core_model, m_num_banks_per_sched, rr.get_sid());
-      m_arbiter.allocate_for_read(bank,rr);
+      //std::cout<<"3.reg:"<<reg<<" w:"<<wid<<" b:"<<rr.get_bank()<<" rb:"<<bank<<std::endl;
+            
+      new_addr_type rfc_addr = ((reg << nset_log2) + wid) << line_sz_log2; 
+
+      unsigned time_rfc = gpu_sim_cycle + gpu_tot_sim_cycle;
+      enum cache_request_status cache_status = op_rfc->access(rfc_addr, 0, time_rfc, events);
+      if( cache_status == HIT)
+          bank = rf++;
+      else
+        m_arbiter.allocate_for_read(bank,rr);
       read_ops[bank] = rr;
    }
    std::map<unsigned,op_t>::iterator r;
@@ -3781,19 +3818,19 @@ void opndcoll_rfu_t::allocate_reads()
     			  }
     		  }
     	  }
-    	  m_shader->incregfile_reads(active_count); // TODO: this is correct.
+    	  m_shader->incregfile_reads(active_count);
       }else{
     	  m_shader->incregfile_reads(m_shader->get_config()->warp_size);//op.get_active_count());
       }
   }
 
   // RFC : access operands from the RFC
-  for (std::list<op_t>::iterator r=m_arbiter.rfc_queue[0].begin(); r!=m_arbiter.rfc_queue[0].end(); r++) {
+/*  for (std::list<op_t>::iterator r=m_arbiter.rfc_queue[0].begin(); r!=m_arbiter.rfc_queue[0].end(); r++) {
       op_t &op_rfc = *r;
       unsigned cu = op_rfc.get_oc_id();
       unsigned operand = op_rfc.get_operand();
       m_cu[cu]->collect_operand(operand);
-  }
+  }*/
 } 
 
 bool opndcoll_rfu_t::collector_unit_t::ready() const 

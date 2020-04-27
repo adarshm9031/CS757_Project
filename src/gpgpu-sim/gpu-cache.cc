@@ -1834,6 +1834,18 @@ void tex_cache::display_state( FILE *fp ) const
 }
 
 // RFC
+
+enum cache_request_status
+register_cache::probe( new_addr_type addr)
+{
+    new_addr_type block_addr = m_config.block_addr(addr);
+    unsigned cache_index = (unsigned)-1;
+    enum cache_request_status probe_status = MISS;
+    probe_status = m_tag_array->probe(block_addr, cache_index, NULL);
+    m_stats.inc_stats(0, probe_status);
+    return probe_status;
+}
+
 enum cache_request_status
 register_cache::access( new_addr_type addr, mem_fetch *mf,
         unsigned time, std::list<cache_event> &events )
@@ -1862,8 +1874,8 @@ register_cache::fill( new_addr_type addr,
     // For ON-MISS poilicy and modified evicted block, evicted will be non-NULL
     unsigned cache_index = (unsigned)-1;
     new_addr_type block_addr = m_config.block_addr(addr);
-    enum cache_request_status probe_status = m_tag_array->probe(block_addr, cache_index, NULL); // TODO: why do we need to probe? access will anyway do that!
-    enum cache_request_status result = m_tag_array->access(addr,time,cache_index, wb, evicted, NULL);
+    enum cache_request_status probe_status = m_tag_array->probe(block_addr, cache_index, NULL);
+    enum cache_request_status result = m_tag_array->access(block_addr,time,cache_index, wb, evicted, NULL);
 
     cache_block_t* block = m_tag_array->get_block(cache_index);
     block->set_status(MODIFIED, NULL);
@@ -1872,8 +1884,7 @@ register_cache::fill( new_addr_type addr,
     m_lines_inst[cache_index] = inst; // write new instruction
 
     // 1 access type is WRITE
-    // TODO: do we want to separate read and write misses?
-    //m_stats.inc_stats(1, m_stats.select_stats_status(probe_status, result));
+    m_stats.inc_stats(1, m_stats.select_stats_status(probe_status, result));
     return result;
 }
 

@@ -689,6 +689,13 @@ private:
          else if( !m_warp->empty() )
             fprintf(fp," <R%u, wid:%02u> ", m_register,m_warp->warp_id() );
       }
+      void dump2() const 
+      {
+         if(m_cu) 
+            printf(" <R%u, CU:%u, w:%02u> ", m_register,m_cu->get_id(),m_cu->get_warp_id());
+         else if( !m_warp->empty() )
+            printf(" <R%u, wid:%02u> ", m_register,m_warp->warp_id() );
+      }
       std::string get_reg_string() const
       {
          char buffer[64];
@@ -725,6 +732,12 @@ private:
          else if( m_allocation == READ_ALLOC ) { fprintf(fp,"rd: "); m_op.dump(fp); }
          else if( m_allocation == WRITE_ALLOC ) { fprintf(fp,"wr: "); m_op.dump(fp); }
          fprintf(fp,"\n");
+      }
+      void dump2() const {
+         if( m_allocation == NO_ALLOC ) { printf("<free>"); }
+         else if( m_allocation == READ_ALLOC ) { printf("rd: "); m_op.dump2(); }
+         else if( m_allocation == WRITE_ALLOC ) { printf("wr: "); m_op.dump2(); }
+         printf("\n");
       }
       void alloc_read( const op_t &op )  { assert(is_free()); m_allocation=READ_ALLOC; m_op=op;  }
       void alloc_write( const op_t &op ) { assert(is_free()); m_allocation=WRITE_ALLOC; m_op=op; }
@@ -794,7 +807,28 @@ private:
          fprintf(fp,"\n");
       }
 
+      void dump2() const
+      {
+         printf("\n");
+         printf("  Arbiter State:\n");
+         printf("  requests:\n");
+         for( unsigned b=0; b<m_num_banks; b++ ) {
+            printf("    bank %u : ", b );
+            std::list<op_t>::const_iterator o = m_queue[b].begin();
+            for(; o != m_queue[b].end(); o++ ) {
+               o->dump2();
+            }
+            printf("\n");
+         }
+         printf("  grants:\n");
+         for(unsigned b=0;b<m_num_banks;b++) {
+            printf("    bank %u : ", b );
+            m_allocated_bank[b].dump2();
+         }
+         printf("\n");
+      }
       // modifiers
+      void clear_the_mess(register_cache *rfc);
       std::list<op_t> allocate_reads(); 
 
       void add_read_requests( collector_unit_t *cu, register_cache *rfc, unsigned time=0 ) 
@@ -804,25 +838,28 @@ private:
             const op_t &op = src[i];
             if( op.valid() ) {
                unsigned bank = op.get_bank();
-               
-               // RFC              
+               m_queue[bank].push_back(op);
+               /*// RFC              
                unsigned rfc_reg = op.get_reg();
                unsigned rfc_wid = op.get_wid();
                unsigned line_sz_log2 = rfc->get_line_sz_log2();
                unsigned nset_log2 = rfc->get_nset_log2();
-               
+                
                new_addr_type rfc_addr = ((rfc_reg << nset_log2) + rfc_wid) << line_sz_log2;
                std::list<cache_event> events;
 
                enum cache_request_status cache_status = MISS;
-               cache_status = rfc->access(rfc_addr, NULL, time, events);
-                
+               //cache_status = rfc->access(rfc_addr, NULL, time, events);
+               cache_status = rfc->probe(rfc_addr);
+               
+               //unsigned bank1 = (rfc_reg + rfc_wid) % m_num_banks;
+               //std::cout<<"1.reg:"<<rfc_reg<<" w:"<<rfc_wid<<" b:"<<bank<<" rb:"<<bank1<<std::endl;
                if (cache_status == HIT) {
-                   rfc_queue[0].push_back(op); // TODO: Should we design a banked RFC? If yes, we need separate queues
+                   rfc_queue[0].push_back(op);
                }
-               else {
-                   m_queue[bank].push_back(op);
-               }
+              // else {
+              //     assert (bank1 == bank);
+               //}*/
             }
          }
       }
@@ -838,6 +875,7 @@ private:
       }
       void allocate_for_read( unsigned bank, const op_t &op )
       {
+         assert (op.get_bank() == bank);
          assert( bank < m_num_banks );
          m_allocated_bank[bank].alloc_read(op);
       }
