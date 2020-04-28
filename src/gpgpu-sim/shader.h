@@ -830,6 +830,7 @@ private:
       // modifiers
       void clear_the_mess(register_cache *rfc);
       std::list<op_t> allocate_reads(); 
+      std::list<op_t> allocate_rfc_reads();
 
       void add_read_requests( collector_unit_t *cu, register_cache *rfc, unsigned time=0 ) 
       {
@@ -838,8 +839,7 @@ private:
             const op_t &op = src[i];
             if( op.valid() ) {
                unsigned bank = op.get_bank();
-               m_queue[bank].push_back(op);
-               /*// RFC              
+               // RFC              
                unsigned rfc_reg = op.get_reg();
                unsigned rfc_wid = op.get_wid();
                unsigned line_sz_log2 = rfc->get_line_sz_log2();
@@ -849,17 +849,13 @@ private:
                std::list<cache_event> events;
 
                enum cache_request_status cache_status = MISS;
-               //cache_status = rfc->access(rfc_addr, NULL, time, events);
-               cache_status = rfc->probe(rfc_addr);
+               cache_status = rfc->access(rfc_addr, NULL, time, events);
                
-               //unsigned bank1 = (rfc_reg + rfc_wid) % m_num_banks;
-               //std::cout<<"1.reg:"<<rfc_reg<<" w:"<<rfc_wid<<" b:"<<bank<<" rb:"<<bank1<<std::endl;
                if (cache_status == HIT) {
                    rfc_queue[0].push_back(op);
                }
-              // else {
-              //     assert (bank1 == bank);
-               //}*/
+               else
+                   m_queue[bank].push_back(op);
             }
          }
       }
@@ -899,7 +895,6 @@ private:
       int *_outmatch;
       int **_request;
 
-   public:
       // RFC
       std::list<op_t> *rfc_queue;
    };

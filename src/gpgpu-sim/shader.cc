@@ -3110,6 +3110,20 @@ void opndcoll_rfu_t::arbiter_t::clear_the_mess(register_cache *rfc)
    }
 }
 
+std::list<opndcoll_rfu_t::op_t> opndcoll_rfu_t::arbiter_t::allocate_rfc_reads()
+{
+   std::list<op_t> result;
+
+   while (!rfc_queue[0].empty()) {
+       op_t &op = rfc_queue[0].front();
+       result.push_back(op);
+       rfc_queue[0].pop_front();
+   }
+
+   return result;
+}
+   
+
 // modifiers
 std::list<opndcoll_rfu_t::op_t> opndcoll_rfu_t::arbiter_t::allocate_reads() 
 {
@@ -3183,9 +3197,6 @@ std::list<opndcoll_rfu_t::op_t> opndcoll_rfu_t::arbiter_t::allocate_reads()
          if( !m_allocated_bank[i].is_write() ) {
             unsigned bank = (unsigned)i;
             op_t &op = m_queue[bank].front();
-//            std::cout<<"2.reg:"<<op.get_reg()<<" w:"<<op.get_wid()<<" b:"<<i<<" rb:"<< (op.get_reg()+op.get_wid())%m_num_banks<<std::endl;
-//            assert (bank == (op.get_bank()));
-            unsigned bank2 =  (op.get_reg()+op.get_wid())%m_num_banks;
             result.push_back(op);
             m_queue[bank].pop_front();
          }
@@ -3775,7 +3786,6 @@ void opndcoll_rfu_t::allocate_cu( unsigned port_num )
 
 void opndcoll_rfu_t::allocate_reads()
 {
-   //m_arbiter.clear_the_mess(op_rfc);
    // process read requests that do not have conflicts
    std::list<op_t> allocated = m_arbiter.allocate_reads();
    std::map<unsigned,op_t> read_ops;
@@ -3790,18 +3800,18 @@ void opndcoll_rfu_t::allocate_reads()
       unsigned reg = rr.get_reg();
       unsigned wid = rr.get_wid();
       unsigned bank = register_bank(reg,wid,m_num_banks,m_bank_warp_shift,sub_core_model, m_num_banks_per_sched, rr.get_sid());
-      //std::cout<<"3.reg:"<<reg<<" w:"<<wid<<" b:"<<rr.get_bank()<<" rb:"<<bank<<std::endl;
-            
-      new_addr_type rfc_addr = ((reg << nset_log2) + wid) << line_sz_log2; 
-
-      unsigned time_rfc = gpu_sim_cycle + gpu_tot_sim_cycle;
-      enum cache_request_status cache_status = op_rfc->access(rfc_addr, 0, time_rfc, events);
-      if( cache_status == HIT)
-          bank = rf++;
-      else
-        m_arbiter.allocate_for_read(bank,rr);
+      m_arbiter.allocate_for_read(bank,rr);
       read_ops[bank] = rr;
    }
+
+   // access operator being read from the RFC
+   unsigned temp = m_num_banks + 1;
+   allocated = m_arbiter.allocate_rfc_reads();
+   for( std::list<op_t>::iterator r=allocated.begin(); r!=allocated.end(); r++) {
+     const op_t &rr = *r;
+     read_ops[temp++] = rr;
+   } 
+
    std::map<unsigned,op_t>::iterator r;
    for(r=read_ops.begin();r!=read_ops.end();++r ) {
       op_t &op = r->second;
@@ -3823,14 +3833,6 @@ void opndcoll_rfu_t::allocate_reads()
     	  m_shader->incregfile_reads(m_shader->get_config()->warp_size);//op.get_active_count());
       }
   }
-
-  // RFC : access operands from the RFC
-/*  for (std::list<op_t>::iterator r=m_arbiter.rfc_queue[0].begin(); r!=m_arbiter.rfc_queue[0].end(); r++) {
-      op_t &op_rfc = *r;
-      unsigned cu = op_rfc.get_oc_id();
-      unsigned operand = op_rfc.get_operand();
-      m_cu[cu]->collect_operand(operand);
-  }*/
 } 
 
 bool opndcoll_rfu_t::collector_unit_t::ready() const 
