@@ -41,6 +41,7 @@
 
 #define STR_SIZE 1024
 
+
 unsigned symbol::sm_next_uid = 1;
 
 unsigned symbol::get_uid()
@@ -618,6 +619,11 @@ void function_info::do_pdom()
    }
    printf("GPGPU-Sim PTX: ... done pre-decoding instructions for \'%s\'.\n", m_name.c_str() );
    fflush(stdout);
+
+   printf("Predecoded regsiters for first warp in a kernel: ");
+   for (auto &it: predecoded_regs)	
+	std::cout << it << " ";
+   std::cout << std::endl;
    m_assembled = true;
 }
 void intersect( std::set<int> &A, const std::set<int> &B )

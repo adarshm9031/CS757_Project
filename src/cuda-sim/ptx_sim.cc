@@ -146,7 +146,7 @@ void ptx_cta_info::reset_bar_threads()
 
 ptx_warp_info::ptx_warp_info()
 {
-	reset_done_threads();
+ 	reset_done_threads();
 }
 
 unsigned ptx_warp_info::get_done_threads() const
@@ -170,6 +170,7 @@ unsigned g_ptx_thread_info_delete_count=0;
 ptx_thread_info::~ptx_thread_info()
 {
    g_ptx_thread_info_delete_count++;
+   dump_regs(stdout);
 }
 
 ptx_thread_info::ptx_thread_info( kernel_info_t &kernel )
@@ -222,7 +223,7 @@ void ptx_thread_info::set_done()
 {
    assert( !m_at_barrier );
    m_thread_done = true;
-   m_cycle_done = gpu_sim_cycle; 
+   m_cycle_done = gpu_sim_cycle;
 }
 
 unsigned ptx_thread_info::get_builtin( int builtin_id, unsigned dim_mod ) 
@@ -539,6 +540,8 @@ void ptx_thread_info::dump_regs( FILE *fp )
       ptx_reg_t value = r->second;
       std::string name = sym->name();
       print_reg(fp,name,value,m_symbol_table);
+
+
    }
 }
 

@@ -50,6 +50,8 @@
 #include "../stream_manager.h"
 #include "cuda_device_runtime.h"
 
+std::vector<unsigned> predecoded_regs;
+
 int gpgpu_ptx_instruction_classification;
 void ** g_inst_classification_stat = NULL;
 void ** g_inst_op_classification_stat= NULL;
@@ -1042,15 +1044,28 @@ void ptx_instruction::pre_decode()
          }
       }
    }
-   
+  
+   //std::cout << "\nPre-decoded registers for first warp (id:0): ";
    //Setting number of input and output operands which is required for scoreboard check
    for(int i=0;i<MAX_OUTPUT_VALUES;i++)
-	if(out[i]>0)
-		outcount++;   
- 
+   {
+        if(out[i]>0)
+        {
+                outcount++;
+                if(std::find(predecoded_regs.begin(), predecoded_regs.end(), out[i]) == predecoded_regs.end())
+                	predecoded_regs.push_back(out[i]);
+        }
+   }
+
    for(int i=0;i<MAX_INPUT_VALUES;i++)
-	if(in[i]>0)
-		incount++;   
+   {
+        if(in[i]>0)
+        {
+                incount++;
+                if(std::find(predecoded_regs.begin(), predecoded_regs.end(), in[i]) == predecoded_regs.end())
+                        predecoded_regs.push_back(in[i]);
+        }
+    }
 
    // Get predicate
    if(has_pred()) {
@@ -1539,7 +1554,6 @@ void ptx_thread_info::ptx_exec_inst( warp_inst_t &inst, unsigned lane_id)
    const ptx_instruction *pI = m_func_info->get_instruction(pc);
    
    set_npc( pc + pI->inst_size() );
-   
 
    try {
 

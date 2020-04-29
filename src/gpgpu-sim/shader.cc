@@ -53,6 +53,8 @@
 #define MIN(a,b) (((a)<(b))?(a):(b))
     
 
+std::vector<unsigned> fetch_regs;
+
 /////////////////////////////////////////////////////////////////////////////
 
 std::list<unsigned> shader_core_ctx::get_regs_written( const inst_t &fvt ) const
@@ -532,6 +534,11 @@ void shader_core_stats::print( FILE* fout ) const
         thread_icount_uarch += m_num_sim_insn[i];
         warp_icount_uarch += m_num_sim_winsn[i];
     }
+
+    std::cout << "Warp 0 regs: ";
+    for (auto &it: fetch_regs)
+	std::cout << " " << it;
+ 
     fprintf(fout,"gpgpu_n_tot_thrd_icount = %lld\n", thread_icount_uarch);
     fprintf(fout,"gpgpu_n_tot_w_icount = %lld\n", warp_icount_uarch);
 
@@ -783,8 +790,8 @@ void shader_core_ctx::fetch()
 
                 // this code checks if this warp has finished executing and can be reclaimed
                 if( m_warp[warp_id].hardware_done() && !m_scoreboard->pendingWrites(warp_id) && !m_warp[warp_id].done_exit() ) {
-                    bool did_exit=false;
-                    for( unsigned t=0; t<m_config->warp_size;t++) {
+                    bool did_exit = false;
+              for( unsigned t=0; t<m_config->warp_size;t++) {
                         unsigned tid=warp_id*m_config->warp_size+t;
                         if( m_threadState[tid].m_active == true ) {
                             m_threadState[tid].m_active = false; 
@@ -797,12 +804,21 @@ void shader_core_ctx::fetch()
                         }
                     }
                     if( did_exit ) 
-                        m_warp[warp_id].set_done_exit();
+                    {
+			m_warp[warp_id].set_done_exit();
                         --m_active_warps;
                         assert(m_active_warps >= 0);
+	             //print vector after warp exit
+		       if(warp_id == 0)
+       			 {
+        			std::cout << "Registers used by first warp, id:0 ";
+       				 for(auto &it: fetch_regs)
+                			std::cout << " " << it;
+        			std::cout<<std::endl;
+       			 }
+		     }
                 }
-
-                // this code fetches instructions from the i-cache or generates memory requests
+		// this code fetches instructions from the i-cache or generates memory requests
                 if( !m_warp[warp_id].functional_done() && !m_warp[warp_id].imiss_pending() && m_warp[warp_id].ibuffer_empty() ) {
                     address_type pc  = m_warp[warp_id].get_pc();
                     address_type ppc = pc + PROGRAM_MEM_START;
@@ -858,7 +874,7 @@ void shader_core_ctx::func_exec_inst( warp_inst_t &inst )
 
 void shader_core_ctx::issue_warp( register_set& pipe_reg_set, const warp_inst_t* next_inst, const active_mask_t &active_mask, unsigned warp_id, unsigned sch_id )
 {
-	warp_inst_t** pipe_reg = pipe_reg = pipe_reg_set.get_free(m_config->sub_core_model, sch_id);
+    warp_inst_t** pipe_reg = pipe_reg = pipe_reg_set.get_free(m_config->sub_core_model, sch_id);
     assert(pipe_reg);
 
     m_warp[warp_id].ibuffer_free();
@@ -878,6 +894,27 @@ void shader_core_ctx::issue_warp( register_set& pipe_reg_set, const warp_inst_t*
     updateSIMTStack(warp_id,*pipe_reg);
     m_scoreboard->reserveRegisters(*pipe_reg);
     m_warp[warp_id].set_next_pc(next_inst->pc + next_inst->isize);
+    
+   if(warp_id == 0)
+   {
+      for(int i=0;i<MAX_OUTPUT_VALUES;i++)
+      {
+        if(next_inst->out[i]>0)
+        {
+	  if(std::find(fetch_regs.begin(), fetch_regs.end(), next_inst->out[i]) == fetch_regs.end())
+              fetch_regs.push_back(next_inst->out[i]);
+        }
+   }
+
+   for(int i=0;i<MAX_INPUT_VALUES;i++)
+   {
+        if(std::find(fetch_regs.begin(), fetch_regs.end(), next_inst->in[i]) == fetch_regs.end())
+        {
+               fetch_regs.push_back(next_inst->in[i]);
+        }
+    }
+}
+
 }
 
 void shader_core_ctx::issue(){
