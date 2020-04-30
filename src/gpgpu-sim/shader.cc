@@ -53,7 +53,7 @@
 #define MIN(a,b) (((a)<(b))?(a):(b))
     
 
-std::vector<unsigned> fetch_regs;
+std::vector<unsigned> fetch_regs[64]; // total warps
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -535,10 +535,65 @@ void shader_core_stats::print( FILE* fout ) const
         warp_icount_uarch += m_num_sim_winsn[i];
     }
 
-    std::cout << "Warp 0 regs: ";
-    for (auto &it: fetch_regs)
-	std::cout << " " << it;
- 
+    std::cout << "Warp regs: ";
+    //sort regs
+   for(unsigned in = 0; in < m_config->warp_size; in++)
+   {	
+    std::sort(fetch_regs[in].begin(), fetch_regs[in].end());
+    if(fetch_regs[in].size())
+    {
+	for (auto &it: fetch_regs[in])
+		std::cout << " " << it ;
+    }
+    //std::cout << "\nWarp 0 predecoded regs: ";
+    std::sort(predecoded_regs.begin(), predecoded_regs.end());
+    //for (auto &it: predecoded_regs)
+    //    std::cout << " " << it;
+    std::cout << std::endl;
+
+    //std::cout << "Check equality: ";
+    if(fetch_regs[in] == predecoded_regs)
+	std::cout << "Equal: warp " <<in<< std::endl;
+   }
+    //find number of common elements
+   unsigned common_count = 0;
+   unsigned  total_count = 0;
+   double similarity = 0;
+   for(unsigned in = 1; in < m_config->warp_size; in++)
+   {
+      if(fetch_regs[in].size())
+      {
+    	std::vector<unsigned> v(fetch_regs[0].size() + fetch_regs[in].size());
+	auto itr = std::set_intersection(fetch_regs[0].begin(), fetch_regs[0].end(), fetch_regs[in].begin(), fetch_regs[in].end(), v.begin());        
+	
+	common_count += itr - v.begin();
+//	std::cout << common_count << std::endl;
+        total_count += fetch_regs[0].size();
+//        std::cout << total_count << std::endl;
+     }
+}
+  similarity = (double)common_count/total_count * 100;
+  std::cout << "Similarity % wrt warp 0 "<< similarity << std::endl;
+
+common_count = 0;
+total_count = 0;
+similarity = 0;
+for(unsigned in = 2; in < m_config->warp_size; in++)
+   {
+      if(fetch_regs[in].size())
+      {
+        std::vector<unsigned> v(fetch_regs[1].size() + fetch_regs[in].size());
+        auto itr = std::set_intersection(fetch_regs[1].begin(), fetch_regs[1].end(), fetch_regs[in].begin(), fetch_regs[in].end(), v.begin());
+
+        common_count += itr - v.begin();
+//      std::cout << common_count << std::endl;
+        total_count += fetch_regs[in].size();
+//        std::cout << total_count << std::endl;
+     }
+}
+  similarity = (double)common_count/total_count * 100;
+  std::cout << "Similarity % wrt warp 1 "<< similarity << std::endl;
+
     fprintf(fout,"gpgpu_n_tot_thrd_icount = %lld\n", thread_icount_uarch);
     fprintf(fout,"gpgpu_n_tot_w_icount = %lld\n", warp_icount_uarch);
 
@@ -809,13 +864,13 @@ void shader_core_ctx::fetch()
                         --m_active_warps;
                         assert(m_active_warps >= 0);
 	             //print vector after warp exit
-		       if(warp_id == 0)
-       			 {
-        			std::cout << "Registers used by first warp, id:0 ";
-       				 for(auto &it: fetch_regs)
-                			std::cout << " " << it;
-        			std::cout<<std::endl;
-       			 }
+		     //  if(warp_id == 0)
+       		     //	 {
+        	     //		std::cout << "Registers used by first warp, id:0 ";
+       		     //		 for(auto &it: fetch_regs)
+                     //			std::cout << " " << it;
+        	     //		std::cout<<std::endl;
+       		     //	 }
 		     }
                 }
 		// this code fetches instructions from the i-cache or generates memory requests
@@ -895,26 +950,28 @@ void shader_core_ctx::issue_warp( register_set& pipe_reg_set, const warp_inst_t*
     m_scoreboard->reserveRegisters(*pipe_reg);
     m_warp[warp_id].set_next_pc(next_inst->pc + next_inst->isize);
     
-   if(warp_id == 0)
+  // if(warp_id == 0)
    {
       for(int i=0;i<MAX_OUTPUT_VALUES;i++)
       {
         if(next_inst->out[i]>0)
         {
-	  if(std::find(fetch_regs.begin(), fetch_regs.end(), next_inst->out[i]) == fetch_regs.end())
-              fetch_regs.push_back(next_inst->out[i]);
+	  if(std::find(fetch_regs[warp_id].begin(), fetch_regs[warp_id].end(), next_inst->out[i]) == fetch_regs[warp_id].end())
+              fetch_regs[warp_id].push_back(next_inst->out[i]);
         }
-   }
+      }
 
-   for(int i=0;i<MAX_INPUT_VALUES;i++)
-   {
-        if(std::find(fetch_regs.begin(), fetch_regs.end(), next_inst->in[i]) == fetch_regs.end())
-        {
-               fetch_regs.push_back(next_inst->in[i]);
-        }
+   	for(int i=0;i<MAX_INPUT_VALUES;i++)
+   	{
+ 		if(next_inst->in[i] > 0)
+		{
+        		if(std::find(fetch_regs[warp_id].begin(), fetch_regs[warp_id].end(), next_inst->in[i]) == fetch_regs[warp_id].end())
+        		{
+               			fetch_regs[warp_id].push_back(next_inst->in[i]);
+       			}
+    		}
+   	}
     }
-}
-
 }
 
 void shader_core_ctx::issue(){
@@ -1040,8 +1097,8 @@ void scheduler_unit::cycle()
         if ( (*iter) == NULL || (*iter)->done_exit() ) {
             continue;
         }
-        SCHED_DPRINTF( "Testing (warp_id %u, dynamic_warp_id %u)\n",
-                       (*iter)->get_warp_id(), (*iter)->get_dynamic_warp_id() );
+        //fprintf(stdout, "Testing (warp_id %u, dynamic_warp_id %u)\n",
+      //                 (*iter)->get_warp_id(), (*iter)->get_dynamic_warp_id() );
         unsigned warp_id = (*iter)->get_warp_id();
         unsigned checked=0;
         unsigned issued=0;
@@ -1538,8 +1595,8 @@ void shader_core_ctx::warp_inst_complete(const warp_inst_t &inst)
 {
 
   #if 0
-      printf("[warp_inst_complete] uid=%u core=%u warp=%u pc=%#x @ time=%llu issued@%llu\n",
-             inst.get_uid(), m_sid, inst.warp_id(), inst.pc, gpu_tot_sim_cycle + gpu_sim_cycle, inst.get_issue_cycle());
+      printf("[warp_inst_complete] uid=%u core=%u warp=%u dynamic_warp=%u pc=%#x \n",
+             inst.get_uid(), m_sid, inst.warp_id(), inst.dynamic_warp_id(), inst.pc );
   #endif
 
   if(inst.op_pipe==SP__OP)
