@@ -48,6 +48,9 @@ public:
     bool pendingWrites(unsigned wid) const;
     void printContents() const;
     const bool islongop(unsigned warp_id, unsigned regnum);
+    std::vector<std::set<unsigned>> warp_regs;
+    void dump();
+    void clear_warp_regs(unsigned wid);
 private:
     void reserveRegister(unsigned wid, unsigned regnum);
     int get_sid() const { return m_sid; }

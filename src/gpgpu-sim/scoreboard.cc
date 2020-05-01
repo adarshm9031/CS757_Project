@@ -29,7 +29,7 @@
 #include "shader.h"
 #include "../cuda-sim/ptx_sim.h"
 #include "shader_trace.h"
-
+#include <iostream>
 
 //Constructor
 Scoreboard::Scoreboard( unsigned sid, unsigned n_warps )
@@ -39,6 +39,7 @@ Scoreboard::Scoreboard( unsigned sid, unsigned n_warps )
 	//Initialize size of table
 	reg_table.resize(n_warps);
 	longopregs.resize(n_warps);
+    warp_regs.resize(n_warps);
 }
 
 // Print scoreboard contents
@@ -64,6 +65,7 @@ void Scoreboard::reserveRegister(unsigned wid, unsigned regnum)
     SHADER_DPRINTF( SCOREBOARD,
                     "Reserved Register - warp:%d, reg: %d\n", wid, regnum );
 	reg_table[wid].insert(regnum);
+    warp_regs[wid].insert(regnum);
 }
 
 // Unmark register as write-pending
@@ -89,6 +91,7 @@ void Scoreboard::reserveRegisters(const class warp_inst_t* inst)
                             "Reserved register - warp:%d, reg: %d\n",
                             inst->warp_id(),
                             inst->out[r] );
+//            std::cout << "Reserved register - warp:" << inst->warp_id() << ", reg:" << inst->out[r] << std::endl;
         }
     }
 
@@ -160,4 +163,26 @@ bool Scoreboard::checkCollision( unsigned wid, const class inst_t *inst ) const
 bool Scoreboard::pendingWrites(unsigned wid) const
 {
 	return !reg_table[wid].empty();
+}
+
+void Scoreboard::dump()
+{
+    for(unsigned i=0; i<warp_regs.size(); i++) {
+        if(warp_regs[i].size() < 1)
+            continue;
+        std::cout << "warpid " << i << ": ";
+        for(std::set<unsigned>::iterator iter=warp_regs[i].begin(); iter!=warp_regs[i].end(); iter++) {
+            std::cout << *iter << " ";
+        }
+        std::cout << std::endl;
+    }
+}
+
+void Scoreboard::clear_warp_regs(unsigned wid)
+{
+    for(std::set<unsigned>::iterator iter=warp_regs[wid].begin(); iter!=warp_regs[wid].end(); iter++) {
+        std::cout << *iter << " ";
+    }
+    std::cout << std::endl;
+    warp_regs[wid].clear();
 }

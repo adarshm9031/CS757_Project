@@ -858,6 +858,7 @@ void shader_core_ctx::func_exec_inst( warp_inst_t &inst )
 
 void shader_core_ctx::issue_warp( register_set& pipe_reg_set, const warp_inst_t* next_inst, const active_mask_t &active_mask, unsigned warp_id, unsigned sch_id )
 {
+    //std::cout << "Warp issued: " << warp_id << std::endl;
 	warp_inst_t** pipe_reg = pipe_reg = pipe_reg_set.get_free(m_config->sub_core_model, sch_id);
     assert(pipe_reg);
 
@@ -995,7 +996,7 @@ void scheduler_unit::cycle()
     bool ready_inst = false;  // of the valid instructions, there was one not waiting for pending register writes
     bool issued_inst = false; // of these we issued one
 
-    order_warps();
+    order_warps(m_scoreboard);
     for ( std::vector< shd_warp_t* >::const_iterator iter = m_next_cycle_prioritized_warps.begin();
           iter != m_next_cycle_prioritized_warps.end();
           iter++ ) {
@@ -1224,7 +1225,7 @@ bool scheduler_unit::sort_warps_by_oldest_dynamic_id(shd_warp_t* lhs, shd_warp_t
     }
 }
 
-void lrr_scheduler::order_warps()
+void lrr_scheduler::order_warps(Scoreboard *scoreboard)
 {
     order_lrr( m_next_cycle_prioritized_warps,
                m_supervised_warps,
@@ -1232,7 +1233,7 @@ void lrr_scheduler::order_warps()
                m_supervised_warps.size() );
 }
 
-void gto_scheduler::order_warps()
+void gto_scheduler::order_warps(Scoreboard *scoreboard)
 {
     order_by_priority( m_next_cycle_prioritized_warps,
                        m_supervised_warps,
@@ -1242,7 +1243,7 @@ void gto_scheduler::order_warps()
                        scheduler_unit::sort_warps_by_oldest_dynamic_id );
 }
 
-void oldest_scheduler::order_warps()
+void oldest_scheduler::order_warps(Scoreboard *scoreboard)
 {
     order_by_priority( m_next_cycle_prioritized_warps,
                        m_supervised_warps,
@@ -1273,15 +1274,17 @@ two_level_active_scheduler::do_on_warp_issued( unsigned warp_id,
     }
 }
 
-void two_level_active_scheduler::order_warps()
+void two_level_active_scheduler::order_warps(Scoreboard *scoreboard)
 {
+    unsigned truly_demoted = 0;
     //Move waiting warps to m_pending_warps
     unsigned num_demoted = 0;
+    const warp_inst_t* inst;
     for (   std::vector< shd_warp_t* >::iterator iter = m_next_cycle_prioritized_warps.begin();
             iter != m_next_cycle_prioritized_warps.end(); ) {
         bool waiting = (*iter)->waiting();
         for (int i=0; i<MAX_INPUT_VALUES; i++){
-            const warp_inst_t* inst = (*iter)->ibuffer_next_inst();
+            inst = (*iter)->ibuffer_next_inst();
             //Is the instruction waiting on a long operation?
             if ( inst && inst->in[i] > 0 && this->m_scoreboard->islongop((*iter)->get_warp_id(), inst->in[i])){
                 waiting = true;
@@ -1295,9 +1298,21 @@ void two_level_active_scheduler::order_warps()
                            (*iter)->get_warp_id(),
                            (*iter)->get_dynamic_warp_id() );
             ++num_demoted;
+            unsigned wid = (*iter)->get_warp_id();
+            if (wid < 64 && inst) {
+                truly_demoted++;
+                //inst->print_insn2();
+                std::cout << "warp id:" << wid << ": ";
+                scoreboard->clear_warp_regs(wid);
+            }
         } else {
             ++iter;
         }
+    }
+
+    if(truly_demoted > 0) {
+        std::cout << std::endl;
+        //scoreboard->dump();
     }
 
     //If there is space in m_next_cycle_prioritized_warps, promote the next m_pending_warps
@@ -1346,7 +1361,7 @@ swl_scheduler::swl_scheduler ( shader_core_stats* stats, shader_core_ctx* shader
     assert( m_num_warps_to_limit <= shader->get_config()->max_warps_per_shader );
 }
 
-void swl_scheduler::order_warps()
+void swl_scheduler::order_warps(Scoreboard *scoreboard)
 {
     if ( SCHEDULER_PRIORITIZATION_GTO == m_prioritization ) {
         order_by_priority( m_next_cycle_prioritized_warps,
@@ -2463,6 +2478,7 @@ void shader_core_ctx::register_cta_thread_exit( unsigned cta_num, kernel_info_t 
               if(m_kernel == kernel)
                 m_kernel = NULL;
               m_gpu->set_kernel_done( kernel );
+              m_scoreboard->dump();
           }
       }
 

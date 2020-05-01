@@ -1075,6 +1075,10 @@ public:
         for (int i=(int)m_config->warp_size-1; i>=0; i--)
             fprintf(fp, "%c", ((m_warp_active_mask[i])?'1':'0') );
     }
+    virtual void print_insn2() const 
+    {
+        printf(" [inst @ pc=0x%04x] ", pc );
+    }
     bool active( unsigned thread ) const { return m_warp_active_mask.test(thread); }
     unsigned active_count() const { return m_warp_active_mask.count(); }
     unsigned issued_count() const { assert(m_empty == false); return m_warp_issued_mask.count(); }  // for instruction counting 
